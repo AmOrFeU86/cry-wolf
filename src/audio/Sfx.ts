@@ -269,6 +269,11 @@ export class Sfx {
         if (!this.play('sniff', at, { vol: 0.5, range: 20 })) this.sniff(at);
         break;
       case 'caught':
+        // multijugador: han cazado a otra oveja (solo se oye su balido, donde esté)
+        if (e.id !== undefined && e.id !== world.sheep.id) {
+          this.play('bleat', at, { vol: 0.9, range: 60 });
+          break;
+        }
         this.play('bleat', null, { vol: 0.9 });
         this.caught();
         break;

@@ -21,6 +21,7 @@
         <div class="pill" title="Lobos">🐺 <span id="wolves">0</span></div>
         <div class="pill" title="Noche">🌙 Noche <span id="night">1</span></div>
       </div>
+      <div id="flock" class="hidden"></div>
       <div id="timer">3:00</div>
       <div id="daytime" title="Hora del día">🌄</div>
       <div id="phase"></div>
@@ -55,7 +56,10 @@
           <li><kbd>Click</kbd> colocar · <kbd>Dcho</kbd> quitar</li>
         </ul>
         <div id="nights"></div>
-        <button id="play">Jugar</button>
+        <div class="buttons">
+          <button id="play">Jugar</button>
+          <button id="online-open" class="secondary">👥 Con amigos</button>
+        </div>
         <div class="volume">
           <label>🎵 Música <input type="range" min="0" max="100" data-vol="music" /></label>
           <label>🔊 Sonidos <input type="range" min="0" max="100" data-vol="sfx" /></label>
@@ -64,9 +68,36 @@
       </div>
     </div>
 
+    <div id="online" class="screen hidden">
+      <div class="card">
+        <h2>👥 Jugar con amigos</h2>
+        <div id="online-form">
+          <p>Entrad todos en la <b>misma sala</b>. Si cazan a una oveja, las demás siguen: ¡ganáis si alguna llega al final de la noche!</p>
+          <label class="field">Tu nombre <input id="online-name" maxlength="16" placeholder="Oveja" /></label>
+          <label class="field">Sala <input id="online-room" maxlength="24" placeholder="principal" /></label>
+          <div class="buttons">
+            <button id="online-join">Entrar</button>
+            <button id="online-back" class="secondary">Volver</button>
+          </div>
+        </div>
+        <div id="online-room-box" class="hidden">
+          <p>Sala <b id="online-room-name"></b></p>
+          <ul id="online-players"></ul>
+          <div id="online-nights"></div>
+          <p id="online-wait"></p>
+          <div class="buttons">
+            <button id="online-start">Empezar</button>
+            <button id="online-leave" class="secondary">Salir</button>
+          </div>
+        </div>
+        <p id="online-error"></p>
+      </div>
+    </div>
+
     <div id="pause" class="screen hidden">
       <div class="card">
         <h2>Pausa</h2>
+        <p id="pause-online" class="hidden">La partida sigue para los demás… ¡y los lobos también!</p>
         <button id="resume">Continuar</button>
         <div class="volume">
           <label>🎵 Música <input type="range" min="0" max="100" data-vol="music" /></label>
@@ -83,6 +114,7 @@
         <div class="buttons">
           <button id="next" class="hidden"></button>
           <button id="again">Repetir noche</button>
+          <button id="to-room" class="hidden">Volver a la sala</button>
           <button id="to-menu" class="secondary">Menú</button>
         </div>
       </div>

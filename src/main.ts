@@ -10,6 +10,9 @@ import { formatTime, Hud } from './ui/Hud';
 import { Threats } from './ui/Threats';
 import type { Replay } from './replay/replay';
 import { ReplayPlayer } from './replay/ReplayPlayer';
+import { NetClient } from './net/NetClient';
+import { MAX_NAME, MAX_ROOM } from './net/protocol';
+import { emptyInput } from './sim/entities';
 
 type Mode = 'menu' | 'playing' | 'paused' | 'over' | 'replay';
 
@@ -24,6 +27,7 @@ const screens = {
   menu: document.getElementById('menu')!,
   pause: document.getElementById('pause')!,
   end: document.getElementById('end')!,
+  online: document.getElementById('online')!,
 };
 const BEST_KEY = 'wolfsheep.best';
 const BEST_SCORE_KEY = 'wolfsheep.bestScore';
@@ -35,6 +39,8 @@ let world = new World();
 renderer.setWorld(world);
 let mode: Mode = 'menu';
 let replay: ReplayPlayer | null = null;
+/** Partida multijugador (null en solitario). */
+let net: NetClient | null = null;
 let slowmo = 0;
 /** Récord de tiempo de cada noche (el de la última noche es el récord de siempre). */
 const bestKey = (night: number) => (night === LAST_NIGHT ? BEST_KEY : `${BEST_KEY}.${night + 1}`);
@@ -102,9 +108,17 @@ function callout(text: string, cls: string, sub = ''): void {
 /** Momentos épicos: mirar los eventos del frame (antes de que el render los consuma). */
 function epicMoments(): void {
   for (const e of world.events) {
-    if (e.type === 'closeCall') {
+    if (e.type === 'caught' && net && world.flock.length > 1) {
+      // multijugador: avisar de quién ha caído (si caen todas, ya lo dice la pantalla final)
+      if (world.alive.length === 0) continue;
+      const mine = e.id === net.id;
+      const name = world.flock.find((s) => s.id === e.id)?.name || 'una oveja';
+      callout(mine ? '¡Te han cazado!' : `¡Han cazado a ${name}!`, 'close', mine ? 'Ahora miras a tus compañeras' : '');
+    } else if (e.type === 'closeCall') {
+      if (net && e.id !== net.id) continue;
       callout('¡Por los pelos!', 'close');
-      if (mode === 'playing') slowmo = SLOWMO_TIME;
+      // en multijugador el tiempo es el mismo para todos: sin cámara lenta
+      if (mode === 'playing' && !net) slowmo = SLOWMO_TIME;
     } else if (e.type === 'escape') {
       callout('¡Despistado!', 'escape');
     } else if (e.type === 'nightfall') {
@@ -168,8 +182,10 @@ function start(night = selectedNight): void {
 function pause(): void {
   if (mode !== 'playing') return;
   mode = 'paused';
-  sfx.stopLoops();
+  if (net) net.idle();
+  else sfx.stopLoops();
   controls.enabled = false;
+  document.getElementById('pause-online')!.classList.toggle('hidden', !net);
   showScreen('pause');
 }
 
@@ -184,6 +200,11 @@ function end(): void {
   mode = 'over';
   controls.enabled = false;
   controls.unlock();
+  setEndButtons();
+  if (net) {
+    endOnline();
+    return;
+  }
   const t = world.survived;
   const night = world.nightIndex;
   const prev = loadBest(bestKey(night));
@@ -219,10 +240,196 @@ function end(): void {
   }, 900);
 }
 
-document.getElementById('play')!.addEventListener('click', () => start());
+/** Final de una partida multijugador: sin récords ni desbloqueos, vuelta a la sala. */
+function endOnline(): void {
+  const won = world.state === 'won';
+  const alive = world.alive.map((s) => s.name).join(', ');
+  document.getElementById('end-title')!.textContent = won ? `¡Habéis sobrevivido a la noche ${world.nightIndex + 1}!` : '¡Os han cazado a todas!';
+  document.getElementById('end-text')!.innerHTML = `Tiempo: ${formatTime(world.survived)}` + (won ? `<br>🐑 Llegan al amanecer: ${alive}` : '');
+  const score = scoreOf(world);
+  const rows = score.lines.map((l) => `<tr><td>${l.label}</td><td>${l.count}</td><td>+${l.points}</td></tr>`).join('');
+  document.getElementById('end-score')!.innerHTML = `<table>${rows}<tr class="total"><td>Total del rebaño</td><td></td><td>${score.total}</td></tr></table>`;
+  setTimeout(() => {
+    if (mode === 'over') showScreen('end');
+  }, 900);
+}
+
+/** En multijugador, la pantalla final solo ofrece volver a la sala (o al menú). */
+function setEndButtons(): void {
+  if (net) document.getElementById('next')!.classList.add('hidden');
+  document.getElementById('again')!.classList.toggle('hidden', !!net);
+  document.getElementById('to-room')!.classList.toggle('hidden', !net);
+}
+
+// ---------------------------------------------------------------- multijugador
+
+const NAME_KEY = 'wolfsheep.name';
+const ROOM_KEY = 'wolfsheep.room';
+const $input = (id: string) => document.getElementById(id) as HTMLInputElement;
+let onlineNight = 0;
+
+function loadText(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? '';
+  } catch {
+    return '';
+  }
+}
+function saveText(key: string, v: string): void {
+  try {
+    localStorage.setItem(key, v);
+  } catch {
+    /* sin almacenamiento */
+  }
+}
+
+function onlineError(msg: string): void {
+  document.getElementById('online-error')!.textContent = msg;
+}
+
+/** Pantalla de jugar con amigos: el formulario o, ya conectado, la sala. */
+function showOnline(): void {
+  mode = 'menu';
+  hud.show(false);
+  controls.enabled = false;
+  document.getElementById('online-form')!.classList.toggle('hidden', !!net);
+  document.getElementById('online-room-box')!.classList.toggle('hidden', !net);
+  showScreen('online');
+}
+
+function leaveOnline(): void {
+  net?.close();
+  net = null;
+  document.getElementById('flock')!.classList.add('hidden');
+}
+
+function renderRoom(playing: boolean): void {
+  if (!net) return;
+  document.getElementById('online-room-name')!.textContent = net.room;
+  const list = document.getElementById('online-players')!;
+  list.innerHTML = '';
+  for (const p of net.players) {
+    const li = document.createElement('li');
+    li.textContent = `${p.id === net.host ? '👑 ' : '🐑 '}${p.name}`;
+    li.classList.toggle('me', p.id === net.id);
+    list.appendChild(li);
+  }
+  // el anfitrión elige la noche entre las que tiene desbloqueadas
+  const nights = document.getElementById('online-nights')!;
+  nights.innerHTML = '';
+  if (net.isHost && !playing) {
+    onlineNight = Math.min(onlineNight, unlockedNight());
+    NIGHTS.forEach((_, k) => {
+      if (k > unlockedNight()) return;
+      const b = document.createElement('button');
+      b.textContent = `Noche ${k + 1}`;
+      b.classList.toggle('selected', k === onlineNight);
+      b.addEventListener('click', () => {
+        onlineNight = k;
+        renderRoom(playing);
+      });
+      nights.appendChild(b);
+    });
+  }
+  const host = net.players.find((p) => p.id === net!.host)?.name ?? '';
+  document.getElementById('online-wait')!.textContent = playing
+    ? 'Hay una partida en marcha: entrarás en la siguiente… o espera, ¡ya te meten!'
+    : net.isHost
+      ? 'Eres el anfitrión: elige la noche y empieza cuando estéis todos'
+      : `Esperando a que ${host} empiece la partida…`;
+  document.getElementById('online-start')!.classList.toggle('hidden', !net.isHost || playing);
+}
+
+function joinOnline(): void {
+  const name = $input('online-name').value.trim().slice(0, MAX_NAME);
+  const room = $input('online-room').value.trim().slice(0, MAX_ROOM) || 'principal';
+  saveText(NAME_KEY, name);
+  saveText(ROOM_KEY, room);
+  onlineError('Conectando…');
+  leaveOnline();
+  const client = new NetClient(name, room, {
+    room: (_players, _host, playing) => {
+      if (net !== client) return;
+      onlineError('');
+      renderRoom(playing);
+      if (mode === 'menu') showOnline();
+    },
+    start: (w) => {
+      if (net !== client) return;
+      world = w;
+      renderer.setWorld(world);
+      controls.reset();
+      controls.items = world.items;
+      controls.yaw = 0;
+      controls.pitch = 0.55;
+      mode = 'playing';
+      controls.enabled = true;
+      setEndButtons();
+      showScreen(null);
+      hud.show(true);
+      sfx.start();
+      controls.lock();
+    },
+    error: (msg) => {
+      if (net !== client) return;
+      onlineError(msg);
+    },
+    closed: () => {
+      if (net !== client) return;
+      leaveOnline();
+      showOnline();
+      onlineError('Se ha perdido la conexión con el servidor');
+    },
+  });
+  net = client;
+}
+
+$input('online-name').value = loadText(NAME_KEY);
+$input('online-room').value = loadText(ROOM_KEY);
+document.getElementById('online-open')!.addEventListener('click', () => {
+  onlineError('');
+  showOnline();
+});
+document.getElementById('online-back')!.addEventListener('click', toMenu);
+document.getElementById('online-join')!.addEventListener('click', joinOnline);
+for (const id of ['online-name', 'online-room']) $input(id).addEventListener('keydown', (e) => e.key === 'Enter' && joinOnline());
+document.getElementById('online-start')!.addEventListener('click', () => net?.start(onlineNight));
+document.getElementById('online-leave')!.addEventListener('click', () => {
+  leaveOnline();
+  toMenu();
+});
+document.getElementById('to-room')!.addEventListener('click', showOnline);
+
+/** Lista de ovejas de la partida (arriba a la izquierda). */
+let flockKey = '';
+function updateFlockHud(): void {
+  const el = document.getElementById('flock')!;
+  const show = !!net && mode !== 'menu';
+  el.classList.toggle('hidden', !show);
+  if (!show) return;
+  const key = world.flock.map((s) => `${s.id}:${s.name}:${s.caught}`).join('|');
+  if (key === flockKey) return;
+  flockKey = key;
+  el.innerHTML = '';
+  for (const s of world.flock) {
+    const d = document.createElement('div');
+    d.className = `pill${s.caught ? ' caught' : ''}`;
+    d.textContent = `${s.caught ? '💀' : '🐑'} ${s.name}${s.id === net!.id ? ' (tú)' : ''}`;
+    el.appendChild(d);
+  }
+}
+
+document.getElementById('play')!.addEventListener('click', () => {
+  leaveOnline();
+  start();
+});
 document.getElementById('again')!.addEventListener('click', () => start(world.nightIndex));
 document.getElementById('next')!.addEventListener('click', () => start(world.nightIndex + 1));
-document.getElementById('to-menu')!.addEventListener('click', toMenu);
+document.getElementById('to-menu')!.addEventListener('click', () => {
+  leaveOnline();
+  setEndButtons();
+  toMenu();
+});
 document.getElementById('resume')!.addEventListener('click', resume);
 document.addEventListener('pointerlockchange', () => {
   if (!controls.locked && mode === 'playing') pause();
@@ -261,7 +468,23 @@ function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
 
-  if (mode === 'playing') {
+  if (net && (mode === 'playing' || mode === 'paused' || mode === 'over')) {
+    // multijugador: la simulación está en el servidor; aquí solo se envían órdenes y se coloca lo recibido
+    if (mode === 'playing') {
+      controls.update(dt);
+      controls.aimAt = controls.buildMode ? renderer.aimPoint() : null;
+      const input = controls.getInput();
+      const me = net.me;
+      if (me && !me.caught) {
+        net.input(input, dt);
+        world.preview(me, input);
+      } else {
+        world.preview(world.sheep, emptyInput());
+      }
+    }
+    net.update(dt);
+    if (mode !== 'over' && world.state !== 'playing') end();
+  } else if (mode === 'playing') {
     controls.update(dt);
     controls.aimAt = controls.buildMode ? renderer.aimPoint() : null;
     slowmo = Math.max(0, slowmo - dt);
@@ -291,6 +514,7 @@ function frame(now: number): void {
     document.getElementById('help')!.textContent = 'Espacio pausa · R reiniciar · 1/2/4 velocidad · Arrastrar ratón / flechas: cámara';
   }
   if (mode === 'over') updateBestLabel();
+  updateFlockHud();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

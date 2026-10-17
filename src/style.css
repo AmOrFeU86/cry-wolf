@@ -578,3 +578,102 @@ button.secondary {
   background: #c4b69c;
   border-bottom-color: #9c8c70;
 }
+
+/* ---------------- Multijugador ---------------- */
+
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0;
+  font-weight: 600;
+  color: var(--wood-dark);
+}
+
+.field input {
+  font: inherit;
+  width: 200px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 2px solid #c4b69c;
+  background: #fffaf0;
+  color: #4a3a2e;
+}
+
+#online-players {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+#online-players li {
+  background: #e9e0cf;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-weight: 600;
+}
+
+#online-players li.me {
+  background: #f2b84b;
+  color: #fff;
+}
+
+#online-nights {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#online-nights button {
+  margin: 0;
+  font-size: 15px;
+  padding: 6px 12px;
+  background: #e9e0cf;
+  border-bottom-color: #c4b69c;
+  color: #8a6a3a;
+  text-shadow: none;
+}
+
+#online-nights button.selected {
+  background: #f2b84b;
+  border-bottom-color: #c98a24;
+  color: #fff;
+}
+
+#online-error {
+  color: #c0392b;
+  font-weight: 600;
+  margin-bottom: 0;
+}
+
+#online-wait {
+  color: #8a6a3a;
+}
+
+/* Ovejas de la partida (arriba a la izquierda) */
+#flock {
+  position: absolute;
+  top: 66px;
+  left: 16px;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+#flock .pill {
+  font-size: 16px;
+  padding: 3px 12px;
+}
+
+#flock .pill.caught {
+  opacity: 0.55;
+  text-decoration: line-through;
+}

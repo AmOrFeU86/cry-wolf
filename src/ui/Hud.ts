@@ -52,9 +52,12 @@ export class Hud {
     let cls = '';
     if (prep) {
       phase = '🛠 Prepárate: los lobos llegan pronto';
-    } else if (world.wolves.some((w) => w.mode === 'hunt')) {
+    } else if (world.wolves.some((w) => w.mode === 'hunt' && (w.prey === null || w.prey === world.sheep.id))) {
       phase = '👁 ¡Te han visto!';
       cls = 'seen';
+    } else if (world.wolves.some((w) => w.mode === 'hunt')) {
+      phase = '🐺 ¡Persiguen a una compañera!';
+      cls = 'searched';
     } else if (world.wolves.some((w) => w.mode === 'track')) {
       phase = '👃 Siguen tu rastro';
       cls = 'searched';

@@ -137,6 +137,28 @@ Cada uno contrarresta una estrategia distinta:
 
 ---
 
+## 👥 Multijugador
+
+El servidor (`server/index.ts`) ejecuta la simulación de cada sala y manda el estado unas 30 veces por segundo.
+Los jugadores solo envían sus órdenes (`PlayerInput`). Mensajes en `src/net/protocol.ts`, fotos del estado en `src/net/snapshot.ts`
+y el cliente en `src/net/NetClient.ts`.
+
+- En local: `npm run server` en una terminal y `npm run dev` en otra → menú «👥 Con amigos» (Vite redirige `/ws` al servidor).
+  Para jugar desde otro ordenador de casa: `http://<ip-de-tu-pc>:5173`
+- En el VPS: `npm install && npm run build && PORT=8080 npm run server` (sirve el juego y el WebSocket en el mismo puerto).
+  Con HTTPS, poner delante nginx/Caddy redirigiendo también `/ws` (cabeceras `Upgrade`).
+- Comprobación sin navegador: `npx tsx scripts/net-check.ts`
+
+- [x] Varias ovejas en el mismo prado; cada lobo caza a la que ve más cerca
+- [x] Si cazan a una, las demás siguen (la cámara pasa a una compañera); se gana si alguna llega al final
+- [x] Salas con nombre, anfitrión que elige la noche, se puede entrar a mitad de partida
+- [x] Nombres sobre las ovejas, lista del rebaño en el HUD
+- [ ] Rescatar a una compañera cazada (p. ej. quedarse a su lado unos segundos)
+- [ ] Predicción de movimiento en el cliente si con el VPS se nota retraso al moverse
+- [ ] Probar jugando de verdad: ¿demasiado fácil con varias? (más lobos según el número de ovejas)
+
+---
+
 ## Resultados de pruebas
 
 ### 2026-10-17 · Fases 1-2 (bot programado, 50 partidas)

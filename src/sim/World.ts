@@ -4,10 +4,15 @@ import { clamp, dist, wrapAngle } from './math';
 import { LAST_NIGHT, NIGHTS, itemsForNight, type Night } from './nights';
 import { PIECE_CELL, pieceOfCell, type ItemId, type PieceId } from './pieces';
 import { mulberry32 } from './rng';
-import { Sheep, type Grass, type Wolf, type PlayerInput, type Scent } from './entities';
+import { emptyInput, Sheep, type Grass, type Wolf, type PlayerInput, type Scent } from './entities';
 import { WolfAI } from './WolfAI';
 
 export type GameState = 'playing' | 'won' | 'lost';
+
+/** Donde empieza la (primera) oveja: el centro del prado. */
+const START: Vec2 = { x: 0.5, z: 0.5 };
+/** Orden de una oveja que no hace nada. */
+const IDLE = emptyInput();
 
 export type GameEventType =
   | 'built'
@@ -37,6 +42,7 @@ export interface GameEvent {
   piece?: PieceId; // construcción afectada
   tx?: number; // destino (piña lanzada)
   tz?: number;
+  id?: number; // oveja que lo provoca (esquive, subir, caer, lanzar, atrapada...)
 }
 
 export interface BuildTarget {
@@ -57,6 +63,12 @@ export interface Bridge {
   b: [number, number];
 }
 
+/** Jugador de una partida multijugador. */
+export interface PlayerSlot {
+  id: number;
+  name: string;
+}
+
 /** Piña en el aire. */
 interface Projectile {
   x: number;
@@ -66,11 +78,14 @@ interface Projectile {
 
 /**
  * Simulación completa del juego, sin nada de render.
- * Se puede ejecutar igual en el navegador o en un servidor (multijugador futuro).
+ * Se puede ejecutar igual en el navegador o en un servidor (multijugador).
  */
 export class World {
   readonly grid = new Grid(CONFIG.mapSize);
-  readonly sheep = new Sheep();
+  /** Todas las ovejas. En solitario solo hay una. */
+  readonly flock: Sheep[] = [];
+  /** Id de la oveja que se ve y controla en esta pantalla (`sheep`). */
+  focus = 0;
   readonly wolves: Wolf[] = [];
   readonly grass: Grass[] = [];
   /** Rastro de olor de la oveja, de más antiguo a más reciente. */
@@ -81,10 +96,6 @@ export class World {
 
   time = 0;
   state: GameState = 'playing';
-  buildTarget: BuildTarget | null = null;
-  nearGrass: Grass | null = null;
-  /** Torre a la que se puede subir desde donde está la oveja. */
-  nearTower: [number, number] | null = null;
   readonly projectiles: Projectile[] = [];
   readonly bridges: Bridge[] = [];
   /** Cambia al poner o quitar puentes (para el render). */
@@ -99,22 +110,72 @@ export class World {
   private spawnTimer = CONFIG.prepTime;
   private firstWave = true;
   private nightfall = false;
-  /** Puertas (índice de celda) junto a las que está la oveja: suenan al llegar. */
-  private nearGates = new Set<number>();
-  private scentTimer = 0;
-  private lastScent: Vec2 | null = null;
-  private noiseFx = 0;
-  private lastNoiseR = 0;
 
   constructor(
     readonly seed = (Math.random() * 2 ** 31) | 0,
     /** Índice de la noche (0 = la primera). Por defecto la última: la dificultad completa. */
     readonly nightIndex = LAST_NIGHT,
+    /** Jugadores (multijugador). Sin ellos, una sola oveja con id 0. */
+    players: PlayerSlot[] = [{ id: 0, name: '' }],
   ) {
     this.night = NIGHTS[nightIndex];
     this.items = itemsForNight(nightIndex);
     this.rng = mulberry32(seed);
     this.generate();
+    for (const p of players) this.addSheep(p.id, p.name);
+    this.focus = players[0]?.id ?? 0;
+  }
+
+  /** La oveja de esta pantalla (en solitario, la única). */
+  get sheep(): Sheep {
+    return this.flock.find((s) => s.id === this.focus) ?? this.flock[0];
+  }
+
+  /** Ovejas que siguen en juego. */
+  get alive(): Sheep[] {
+    return this.flock.filter((s) => !s.caught);
+  }
+
+  get buildTarget(): BuildTarget | null {
+    return this.sheep.buildTarget;
+  }
+
+  get nearGrass(): Grass | null {
+    return this.sheep.nearGrass;
+  }
+
+  get nearTower(): [number, number] | null {
+    return this.sheep.nearTower;
+  }
+
+  /** Mete una oveja en el prado: la primera en el centro, las demás alrededor en el primer hueco libre. */
+  addSheep(id: number, name = ''): Sheep {
+    const s = new Sheep();
+    s.id = id;
+    s.name = name;
+    const k = this.flock.length;
+    if (k > 0) {
+      const g = this.grid;
+      // en corro alrededor del centro; si está ocupado (construcciones), cada vez más lejos
+      for (let r = 1.4; r < 20; r += 0.7) {
+        const a = k * 2.4 + r;
+        const p = { x: 0.5 + Math.sin(a) * r, z: 0.5 + Math.cos(a) * r };
+        const [i, j] = g.toCell(p.x, p.z);
+        if (g.get(i, j) !== Cell.Empty) continue;
+        const q = { ...p };
+        if (g.collideCircle(q, CONFIG.sheep.radius, true)) continue;
+        s.pos = p;
+        break;
+      }
+    }
+    this.flock.push(s);
+    return s;
+  }
+
+  removeSheep(id: number): void {
+    const k = this.flock.findIndex((s) => s.id === id);
+    if (k >= 0) this.flock.splice(k, 1);
+    for (const w of this.wolves) if (w.prey === id) w.prey = null;
   }
 
   // ---------------------------------------------------------------- mapa
@@ -172,7 +233,7 @@ export class World {
     const g = this.grid;
     const n = g.n;
     const seen = new Uint8Array(n * n);
-    const [si, sj] = g.toCell(this.sheep.pos.x, this.sheep.pos.z);
+    const [si, sj] = g.toCell(START.x, START.z);
     const stack = [sj * n + si];
     seen[stack[0]] = 1;
     while (stack.length) {
@@ -203,7 +264,7 @@ export class World {
     const m = g.n + 1;
     const free = (vi: number, vj: number) => vi >= 0 && vj >= 0 && vi < m && vj < m && g.vertexCost(vi, vj, 0) === 0;
     const seen = new Uint8Array(m * m);
-    const [si, sj] = g.nearestVertex(this.sheep.pos);
+    const [si, sj] = g.nearestVertex(START);
     const stack = [sj * m + si];
     seen[stack[0]] = 1;
     while (stack.length) {
@@ -265,19 +326,27 @@ export class World {
     return CONFIG.wolf.smellRange * (1 + (CONFIG.darkness.smell - 1) * this.darkness);
   }
 
-  update(dt: number, input: PlayerInput): void {
+  /**
+   * Avanza la simulación. `input`: la orden de la única oveja (solitario) o, en multijugador,
+   * la de cada oveja por id (las que no tengan orden se quedan quietas).
+   */
+  update(dt: number, input: PlayerInput | ReadonlyMap<number, PlayerInput>): void {
     if (this.state !== 'playing') return;
     this.time += dt;
 
-    this.noiseFx -= dt;
-    if (this.noiseFx <= 0) this.lastNoiseR = 0;
     if (!this.nightfall && this.darkness >= 0.5) {
       this.nightfall = true;
       this.events.push({ type: 'nightfall', x: this.sheep.pos.x, z: this.sheep.pos.z });
     }
-    this.updateSheep(dt, input);
-    this.updateScent(dt);
-    this.updateBuild(input);
+    for (const s of this.flock) {
+      if (s.caught) continue;
+      const inp = input instanceof Map ? (input.get(s.id) ?? IDLE) : s === this.flock[0] ? (input as PlayerInput) : IDLE;
+      s.noiseFx -= dt;
+      if (s.noiseFx <= 0) s.lastNoiseR = 0;
+      this.updateSheep(s, dt, inp);
+      this.updateScent(dt, s);
+      this.updateBuild(s, inp);
+    }
     this.updateBridges();
     this.updateProjectiles(dt);
     this.updateGrass(dt);
@@ -293,19 +362,24 @@ export class World {
 
     this.wolfAI.update(dt);
 
-    for (const w of this.wolves) {
-      if (!this.sheep.tower && !this.sheep.crossing && dist(w.pos, this.sheep.pos) < CONFIG.wolf.catchDistance) {
-        this.state = 'lost';
-        this.events.push({ type: 'caught', x: this.sheep.pos.x, z: this.sheep.pos.z });
-        return;
-      }
+    for (const s of this.flock) {
+      if (s.caught || s.tower || s.crossing) continue;
+      if (!this.wolves.some((w) => dist(w.pos, s.pos) < CONFIG.wolf.catchDistance)) continue;
+      s.caught = true;
+      s.eating = false;
+      s.buildTarget = null;
+      s.vel.x = s.vel.z = 0;
+      this.events.push({ type: 'caught', x: s.pos.x, z: s.pos.z, id: s.id });
+    }
+    if (!this.flock.some((s) => !s.caught)) {
+      this.state = 'lost';
+      return;
     }
 
     if (this.time >= CONFIG.prepTime + this.survivalTime) this.state = 'won';
   }
 
-  private updateSheep(dt: number, input: PlayerInput): void {
-    const s = this.sheep;
+  private updateSheep(s: Sheep, dt: number, input: PlayerInput): void {
     const c = CONFIG.sheep;
 
     let mx = input.moveX;
@@ -325,17 +399,17 @@ export class World {
     if (s.tower && this.grid.get(...s.tower) !== Cell.Tower) {
       s.tower = null;
       s.stun = CONFIG.tower.fallStun;
-      this.events.push({ type: 'fall', x: s.pos.x, z: s.pos.z });
+      this.events.push({ type: 'fall', x: s.pos.x, z: s.pos.z, id: s.id });
     }
     if (s.stun > 0) moving = false;
 
     if (s.crossing) {
-      if (this.crossBridge(dt, moving, mx, mz)) return;
+      if (this.crossBridge(s, dt, moving, mx, mz)) return;
       // el puente se ha caído con ella encima
       s.crossing = null;
       s.stun = CONFIG.tower.fallStun;
       this.grid.collideCircle(s.pos, c.radius, true);
-      this.events.push({ type: 'fall', x: s.pos.x, z: s.pos.z });
+      this.events.push({ type: 'fall', x: s.pos.x, z: s.pos.z, id: s.id });
       moving = false;
     }
 
@@ -343,8 +417,8 @@ export class World {
       // En lo alto: los lobos no llegan. Solo puede girar, construir o lanzar, y saltar abajo (esquive)
       s.vel.x = s.vel.z = 0;
       s.eating = false;
-      this.nearGrass = null;
-      this.nearTower = null;
+      s.nearGrass = null;
+      s.nearTower = null;
       s.stamina = Math.min(c.staminaMax, s.stamina + c.staminaRegen * dt);
       if (moving) s.facing += clamp(wrapAngle(Math.atan2(mx, mz) - s.facing), -14 * dt, 14 * dt);
       const dir = moving ? { x: mx, z: mz } : { x: Math.sin(s.facing), z: Math.cos(s.facing) };
@@ -378,8 +452,8 @@ export class World {
       const dl = Math.hypot(s.dashDir.x, s.dashDir.z) || 1;
       s.dashDir.x /= dl;
       s.dashDir.z /= dl;
-      this.events.push({ type: 'dash', x: s.pos.x, z: s.pos.z });
-      this.makeNoise(c.dashNoise);
+      this.events.push({ type: 'dash', x: s.pos.x, z: s.pos.z, id: s.id });
+      this.makeNoise(c.dashNoise, s);
     }
 
     if (s.dashTimer > 0) {
@@ -396,7 +470,7 @@ export class World {
       }
       if (s.exhausted && s.stamina >= c.exhaustedUntil) s.exhausted = false;
 
-      if (moving) this.makeNoise(sprinting ? c.sprintNoise : c.walkNoise);
+      if (moving) this.makeNoise(sprinting ? c.sprintNoise : c.walkNoise, s);
       const speed = moving ? (sprinting ? c.sprintSpeed : c.walkSpeed) : 0;
       const k = Math.min(1, c.accel * dt);
       s.vel.x += (mx * speed - s.vel.x) * k;
@@ -406,7 +480,7 @@ export class World {
     s.pos.x += s.vel.x * dt;
     s.pos.z += s.vel.z * dt;
     this.grid.collideCircle(s.pos, c.radius, true);
-    this.checkGates();
+    this.checkGates(s);
 
     if (moving) {
       const target = Math.atan2(mx, mz);
@@ -414,17 +488,17 @@ export class World {
     }
 
     // Subir a una torre: quieta a su lado manteniendo E
-    this.nearTower = this.adjacentTower();
-    if (input.climb && !moving && s.dashTimer <= 0 && this.nearTower) {
+    s.nearTower = this.adjacentTower(s);
+    if (input.climb && !moving && s.dashTimer <= 0 && s.nearTower) {
       s.climb += dt;
       if (s.climb >= CONFIG.tower.climbTime) {
         s.climb = 0;
-        s.tower = this.nearTower;
+        s.tower = s.nearTower;
         const tc = this.grid.center(...s.tower);
         s.pos.x = tc.x;
         s.pos.z = tc.z;
         s.vel.x = s.vel.z = 0;
-        this.events.push({ type: 'climb', x: tc.x, z: tc.z });
+        this.events.push({ type: 'climb', x: tc.x, z: tc.z, id: s.id });
       }
     } else {
       s.climb = 0;
@@ -432,19 +506,10 @@ export class World {
     s.elevation = s.tower ? 1 : (s.climb / CONFIG.tower.climbTime) * 0.5;
 
     // Comer
-    this.nearGrass = null;
-    let best = c.eatRange;
-    for (const gr of this.grass) {
-      if (gr.amount <= 0) continue;
-      const d = dist(gr, s.pos);
-      if (d < best) {
-        best = d;
-        this.nearGrass = gr;
-      }
-    }
-    s.eating = input.eat && !moving && s.dashTimer <= 0 && s.climb === 0 && !s.tower && this.nearGrass !== null;
-    if (s.eating && this.nearGrass) {
-      const gr = this.nearGrass;
+    s.nearGrass = this.grassNear(s);
+    s.eating = input.eat && !moving && s.dashTimer <= 0 && s.climb === 0 && !s.tower && s.nearGrass !== null;
+    if (s.eating && s.nearGrass) {
+      const gr = s.nearGrass;
       const amt = Math.min(c.eatRate * dt, gr.amount);
       gr.amount -= amt;
       s.wool += amt;
@@ -452,26 +517,55 @@ export class World {
     }
   }
 
-  private updateBuild(input: PlayerInput): void {
-    this.buildTarget = null;
+  /** Hierba con algo que comer al alcance de la oveja. */
+  private grassNear(s: Sheep): Grass | null {
+    let found: Grass | null = null;
+    let best = CONFIG.sheep.eatRange;
+    for (const gr of this.grass) {
+      if (gr.amount <= 0) continue;
+      const d = dist(gr, s.pos);
+      if (d < best) {
+        best = d;
+        found = gr;
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Solo calcula lo que la oveja tiene a mano (pieza apuntada, hierba, torre) sin cambiar nada.
+   * Lo usa el cliente multijugador para que la mira responda al instante, sin esperar al servidor.
+   */
+  preview(s: Sheep, input: PlayerInput): void {
+    if (s.caught) {
+      s.buildTarget = s.nearGrass = s.nearTower = null;
+      return;
+    }
+    const onGround = !s.tower && !s.crossing;
+    s.nearGrass = onGround ? this.grassNear(s) : null;
+    s.nearTower = onGround ? this.adjacentTower(s) : null;
+    this.updateBuild(s, { ...input, place: false, remove: false });
+  }
+
+  private updateBuild(s: Sheep, input: PlayerInput): void {
+    s.buildTarget = null;
     if (!input.buildMode) return;
-    const s = this.sheep;
     const g = this.grid;
     if (!this.items.includes(input.item)) {
-      const aim = this.aimPoint(input, CONFIG.buildRange, 1.5);
+      const aim = this.aimPoint(s, input, CONFIG.buildRange, 1.5);
       const [i, j] = g.toCell(aim.x, aim.z);
-      this.buildTarget = { i, j, x: aim.x, z: aim.z, item: input.item, valid: false, removable: null, poor: false, locked: true };
+      s.buildTarget = { i, j, x: aim.x, z: aim.z, item: input.item, valid: false, removable: null, poor: false, locked: true };
       return;
     }
     if (input.item === 'pinecone') {
-      this.updateThrow(input);
+      this.updateThrow(s, input);
       return;
     }
     if (input.item === 'bridge') {
-      this.updateBridgeBuild(input);
+      this.updateBridgeBuild(s, input);
       return;
     }
-    const aim = this.aimPoint(input, CONFIG.buildRange, 1.5);
+    const aim = this.aimPoint(s, input, CONFIG.buildRange, 1.5);
     const [i, j] = g.toCell(aim.x, aim.z);
     const piece = input.item;
     const cost = CONFIG.pieces[piece].cost;
@@ -485,21 +579,21 @@ export class World {
     const onIt = s.tower !== null && s.tower[0] === i && s.tower[1] === j; // no se desmonta la torre en la que estás
     const removable = isBuilt(cell) && !onIt ? pieceOfCell(cell) : null;
     const c = g.center(i, j);
-    this.buildTarget = { i, j, x: c.x, z: c.z, item: piece, valid, removable, poor, locked: false };
+    s.buildTarget = { i, j, x: c.x, z: c.z, item: piece, valid, removable, poor, locked: false };
 
     if (input.place && valid) {
       g.set(i, j, PIECE_CELL[piece], CONFIG.pieces[piece].hp);
       s.wool -= cost;
-      this.events.push({ type: 'built', x: c.x, z: c.z, piece });
+      this.events.push({ type: 'built', x: c.x, z: c.z, piece, id: s.id });
       this.stats.built++;
-      this.makeNoise(CONFIG.sheep.buildNoise);
+      this.makeNoise(CONFIG.sheep.buildNoise, s);
     } else if (input.remove && removable) {
       const p = CONFIG.pieces[removable];
       const k = j * g.n + i;
       s.wool += p.cost * CONFIG.dismantleRefund * Math.max(0, g.hp[k] / p.hp);
       g.set(i, j, Cell.Empty);
-      this.events.push({ type: 'dismantled', x: c.x, z: c.z, piece: removable });
-      this.makeNoise(CONFIG.sheep.buildNoise);
+      this.events.push({ type: 'dismantled', x: c.x, z: c.z, piece: removable, id: s.id });
+      this.makeNoise(CONFIG.sheep.buildNoise, s);
     }
   }
 
@@ -507,8 +601,7 @@ export class World {
    * Punto del suelo apuntado: la mira (como mucho a `range` de la oveja) o, si no hay mira (bots),
    * `fallback` metros en la dirección aimX/aimZ.
    */
-  private aimPoint(input: PlayerInput, range: number, fallback: number): Vec2 {
-    const s = this.sheep;
+  private aimPoint(s: Sheep, input: PlayerInput, range: number, fallback: number): Vec2 {
     if (input.aimAt) {
       const dx = input.aimAt.x - s.pos.x;
       const dz = input.aimAt.z - s.pos.z;
@@ -523,28 +616,26 @@ export class World {
   }
 
   /** Lanzar una piña donde apunta la mira: al caer hace ruido y atrae a los lobos que no te están cazando. */
-  private updateThrow(input: PlayerInput): void {
-    const s = this.sheep;
+  private updateThrow(s: Sheep, input: PlayerInput): void {
     const p = CONFIG.pinecone;
-    const target = this.clampToMap(this.aimPoint(input, p.range, p.range * 0.6));
+    const target = this.clampToMap(this.aimPoint(s, input, p.range, p.range * 0.6));
     const [i, j] = this.grid.toCell(target.x, target.z);
     const poor = s.wool < p.cost;
     const valid = !poor && s.throwCooldown <= 0 && s.stun <= 0;
-    this.buildTarget = { i, j, x: target.x, z: target.z, item: 'pinecone', valid, removable: null, poor, locked: false };
+    s.buildTarget = { i, j, x: target.x, z: target.z, item: 'pinecone', valid, removable: null, poor, locked: false };
     if (input.place && valid) {
       s.wool -= p.cost;
       s.throwCooldown = p.cooldown;
       this.projectiles.push({ x: target.x, z: target.z, t: p.flightTime });
-      this.events.push({ type: 'throw', x: s.pos.x, z: s.pos.z, tx: target.x, tz: target.z });
+      this.events.push({ type: 'throw', x: s.pos.x, z: s.pos.z, tx: target.x, tz: target.z, id: s.id });
     }
   }
 
   /** Tender un puente desde la torre en la que está hasta otra torre cercana apuntada. */
-  private updateBridgeBuild(input: PlayerInput): void {
-    const s = this.sheep;
+  private updateBridgeBuild(s: Sheep, input: PlayerInput): void {
     const g = this.grid;
     const p = CONFIG.bridge;
-    const aim = this.aimPoint(input, p.range + 1, 3);
+    const aim = this.aimPoint(s, input, p.range + 1, 3);
     // la torre más cercana al punto apuntado (se perdona un poco de puntería)
     const [ai, aj] = g.toCell(aim.x, aim.z);
     let target: [number, number] | null = null;
@@ -564,15 +655,15 @@ export class World {
     const len = from && target ? dist(g.center(...from), at) : Infinity;
     const poor = s.wool < p.cost;
     const valid = !!from && !!target && len <= p.range && !this.bridgeBetween(from, target) && !poor;
-    this.buildTarget = { i: target?.[0] ?? ai, j: target?.[1] ?? aj, x: at.x, z: at.z, item: 'bridge', valid, removable: null, poor, locked: false };
+    s.buildTarget = { i: target?.[0] ?? ai, j: target?.[1] ?? aj, x: at.x, z: at.z, item: 'bridge', valid, removable: null, poor, locked: false };
     if (input.place && valid && from && target) {
       this.bridges.push({ a: from, b: target });
       this.bridgeVersion++;
       s.wool -= p.cost;
       this.stats.built++;
       const c = g.center(...from);
-      this.events.push({ type: 'built', x: (c.x + at.x) / 2, z: (c.z + at.z) / 2 });
-      this.makeNoise(CONFIG.sheep.buildNoise);
+      this.events.push({ type: 'built', x: (c.x + at.x) / 2, z: (c.z + at.z) / 2, id: s.id });
+      this.makeNoise(CONFIG.sheep.buildNoise, s);
     }
   }
 
@@ -602,8 +693,7 @@ export class World {
   }
 
   /** Avanza por el puente. Devuelve false si el puente ya no existe (se cae). */
-  private crossBridge(dt: number, moving: boolean, mx: number, mz: number): boolean {
-    const s = this.sheep;
+  private crossBridge(s: Sheep, dt: number, moving: boolean, mx: number, mz: number): boolean {
     const cr = s.crossing!;
     if (!this.bridgeBetween(cr.from, cr.to)) return false;
     let a = this.grid.center(...cr.from);
@@ -624,8 +714,8 @@ export class World {
     s.facing += clamp(wrapAngle(Math.atan2(b.x - a.x, b.z - a.z) - s.facing), -14 * dt, 14 * dt);
     s.eating = false;
     s.elevation = 1;
-    this.nearGrass = null;
-    this.nearTower = null;
+    s.nearGrass = null;
+    s.nearTower = null;
     s.stamina = Math.min(CONFIG.sheep.staminaMax, s.stamina + CONFIG.sheep.staminaRegen * dt);
     this.stats.towerTime += dt;
     if (cr.t >= 1) {
@@ -659,13 +749,12 @@ export class World {
       if (pr.t > 0) continue;
       this.projectiles.splice(k, 1);
       this.events.push({ type: 'land', x: pr.x, z: pr.z });
-      this.makeNoise(CONFIG.pinecone.noise, pr);
+      this.makeNoise(CONFIG.pinecone.noise, null, pr);
     }
   }
 
   /** Al acercarse a una puerta, se abre (evento para el sonido; la animación la hace el render). */
-  private checkGates(): void {
-    const s = this.sheep;
+  private checkGates(s: Sheep): void {
     const g = this.grid;
     const [ci, cj] = g.toCell(s.pos.x, s.pos.z);
     const near = new Set<number>();
@@ -676,15 +765,14 @@ export class World {
         if (dist(c, s.pos) > 1) continue;
         const k = j * g.n + i;
         near.add(k);
-        if (!this.nearGates.has(k)) this.events.push({ type: 'gate', x: c.x, z: c.z });
+        if (!s.nearGates.has(k)) this.events.push({ type: 'gate', x: c.x, z: c.z, id: s.id });
       }
     }
-    this.nearGates = near;
+    s.nearGates = near;
   }
 
   /** Torre pegada a la oveja (en las 8 celdas de alrededor). */
-  private adjacentTower(): [number, number] | null {
-    const s = this.sheep;
+  private adjacentTower(s: Sheep): [number, number] | null {
     const g = this.grid;
     const [ci, cj] = g.toCell(s.pos.x, s.pos.z);
     for (let dj = -1; dj <= 1; dj++) {
@@ -724,7 +812,7 @@ export class World {
       const nz = clamp(p.z, minZ, minZ + 1);
       return (p.x - nx) ** 2 + (p.z - nz) ** 2 < r * r;
     };
-    if (overlaps(this.sheep.pos, CONFIG.sheep.radius)) return true;
+    if (this.flock.some((s) => !s.caught && overlaps(s.pos, CONFIG.sheep.radius))) return true;
     return this.wolves.some((w) => overlaps(w.pos, CONFIG.wolf.radius));
   }
 
@@ -739,17 +827,17 @@ export class World {
   // ---------------------------------------------------------------- lobos
 
   /** Deja huellas de olor al moverse; quieta, refresca la última. Público para las repeticiones. */
-  updateScent(dt: number): void {
+  updateScent(dt: number, s = this.sheep): void {
     const c = CONFIG.sheep;
-    const s = this.sheep;
-    this.scentTimer -= dt;
-    if (this.scentTimer <= 0) {
-      this.scentTimer = c.scentInterval;
-      if (!this.lastScent || dist(this.lastScent, s.pos) > 0.6) {
-        this.scent.push({ x: s.pos.x, z: s.pos.z, t: this.time });
-        this.lastScent = { x: s.pos.x, z: s.pos.z };
-      } else if (this.scent.length) {
-        this.scent[this.scent.length - 1].t = this.time;
+    s.scentTimer -= dt;
+    if (s.scentTimer <= 0) {
+      s.scentTimer = c.scentInterval;
+      if (!s.lastScent || dist(s.lastScent, s.pos) > 0.6) {
+        s.lastScent = { x: s.pos.x, z: s.pos.z, t: this.time };
+        this.scent.push(s.lastScent);
+      } else {
+        // la última huella de esta oveja (con varias, no tiene por qué ser la última de la lista)
+        s.lastScent.t = this.time;
       }
     }
     while (this.scent.length && this.time - this.scent[0].t > c.scentLife) this.scent.shift();
@@ -757,8 +845,10 @@ export class World {
 
   clearScent(): void {
     this.scent.length = 0;
-    this.lastScent = null;
-    this.scentTimer = 0;
+    for (const s of this.flock) {
+      s.lastScent = null;
+      s.scentTimer = 0;
+    }
   }
 
   /** Intensidad 0..1 de una huella. */
@@ -767,12 +857,12 @@ export class World {
   }
 
   /** Ruido (de la oveja, o en `at`): los lobos que lo oyen (y no la están cazando ya) van a investigar. */
-  private makeNoise(radius: number, at: Vec2 = this.sheep.pos): void {
-    const away = at !== this.sheep.pos;
-    if (radius >= 4 && (away || this.noiseFx <= 0 || radius > this.lastNoiseR)) {
-      if (!away) {
-        this.noiseFx = 0.5;
-        this.lastNoiseR = radius;
+  private makeNoise(radius: number, s: Sheep | null, at: Vec2 = s!.pos): void {
+    const away = s === null;
+    if (radius >= 4 && (away || s.noiseFx <= 0 || radius > s.lastNoiseR)) {
+      if (s) {
+        s.noiseFx = 0.5;
+        s.lastNoiseR = radius;
       }
       this.events.push({ type: 'noise', x: at.x, z: at.z, r: radius });
     }

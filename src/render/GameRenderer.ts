@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { Cell, isBuilt, type Vec2 } from '../sim/Grid';
-import type { Grass } from '../sim/entities';
+import type { Grass, Sheep } from '../sim/entities';
 import { pieceOfCell, PIECES, type PieceId } from '../sim/pieces';
 import type { World } from '../sim/World';
 import {
@@ -54,6 +54,30 @@ function makeIcon(text: string, color: string): THREE.SpriteMaterial {
   return new THREE.SpriteMaterial({ map: tex, depthTest: false, fog: false });
 }
 
+/** Nombre flotando sobre las ovejas de los demás jugadores. */
+function makeLabel(text: string): THREE.Sprite {
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d')!;
+  const font = 'bold 40px Fredoka, Trebuchet MS, sans-serif';
+  ctx.font = font;
+  c.width = Math.ceil(ctx.measureText(text).width) + 28;
+  c.height = 56;
+  ctx.font = font;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = 'rgba(60, 40, 20, 0.85)';
+  ctx.strokeText(text, c.width / 2, 30);
+  ctx.fillStyle = '#fff6e0';
+  ctx.fillText(text, c.width / 2, 30);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, fog: false }));
+  sprite.scale.set((c.width / c.height) * 0.42, 0.42, 1);
+  sprite.renderOrder = 10;
+  return sprite;
+}
+
 /** Piña en vuelo (solo visual: la simulación ya sabe dónde cae). */
 interface Flying {
   mesh: THREE.Mesh;
@@ -68,7 +92,10 @@ export class GameRenderer {
   readonly camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
 
   private level = new THREE.Group();
+  /** Modelo de la oveja que sigue la cámara. */
   private sheep: AnimatedModel = createSheep();
+  /** Todas las ovejas por id (multijugador), con el nombre encima de las de los demás. */
+  private flock = new Map<number, { model: AnimatedModel; label: THREE.Sprite | null; name: string }>();
   private wolves = new Map<number, AnimatedModel>();
   /** Construcciones por índice de celda. */
   private builds = new Map<number, THREE.Group>();
@@ -193,6 +220,7 @@ export class GameRenderer {
       if ((o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.InstancedMesh).dispose();
     });
     this.level.clear();
+    this.flock.clear();
     this.wolves.clear();
     this.alertIcons.clear();
     this.overlays.reset();
@@ -251,8 +279,7 @@ export class GameRenderer {
       this.buildMeadow(world),
     );
 
-    this.sheep = createSheep();
-    this.level.add(this.sheep.root);
+    this.sheep = this.sheepModel(world.sheep).model;
     this.rabbits.reset(world);
     this.level.add(this.rabbits.group);
 
@@ -389,22 +416,67 @@ export class GameRenderer {
     return group;
   }
 
-  render(world: World, dt: number, yaw: number, pitch: number): void {
-    this.time += dt;
-    this.adaptResolution();
-    const s = world.sheep;
+  /** Modelo de una oveja (se crea la primera vez que aparece). */
+  private sheepModel(s: Sheep) {
+    let entry = this.flock.get(s.id);
+    if (!entry) {
+      entry = { model: createSheep(), label: null, name: '' };
+      this.flock.set(s.id, entry);
+      this.level.add(entry.model.root);
+    }
+    return entry;
+  }
 
-    let sheepY = s.elevation * CONFIG.tower.height;
+  /** Altura de la oveja: en lo alto de la torre o siguiendo la curva del puente. */
+  private sheepY(world: World, s: Sheep): number {
+    let y = s.elevation * CONFIG.tower.height;
     if (s.crossing) {
       // sigue la curva del puente (misma caída que createBridge)
       const a = world.grid.center(...s.crossing.from);
       const b = world.grid.center(...s.crossing.to);
-      sheepY -= Math.sin(s.crossing.t * Math.PI) * (0.12 + Math.hypot(b.x - a.x, b.z - a.z) * 0.05);
+      y -= Math.sin(s.crossing.t * Math.PI) * (0.12 + Math.hypot(b.x - a.x, b.z - a.z) * 0.05);
     }
-    this.sheep.root.position.set(s.pos.x, sheepY, s.pos.z);
-    this.sheep.root.rotation.y = s.facing;
-    this.sheep.root.visible = world.state !== 'lost';
-    this.sheep.update(dt, { speed: s.speed, eating: s.eating, stunned: s.stun > 0, tired: s.exhausted });
+    return y;
+  }
+
+  render(world: World, dt: number, yaw: number, pitch: number): void {
+    this.time += dt;
+    this.adaptResolution();
+    const s = world.sheep;
+    const sheepY = this.sheepY(world, s);
+
+    for (const o of world.flock) {
+      const entry = this.sheepModel(o);
+      const m = entry.model;
+      const y = o === s ? sheepY : this.sheepY(world, o);
+      m.root.position.set(o.pos.x, y, o.pos.z);
+      m.root.rotation.y = o.facing;
+      m.root.visible = !o.caught && world.state !== 'lost';
+      m.update(dt, { speed: o.speed, eating: o.eating, stunned: o.stun > 0, tired: o.exhausted });
+      // nombre encima de las demás ovejas
+      const showLabel = o !== s && o.name !== '' && m.root.visible;
+      if (entry.label && (entry.name !== o.name || !showLabel)) {
+        this.level.remove(entry.label);
+        entry.label.material.map?.dispose();
+        entry.label.material.dispose();
+        entry.label = null;
+      }
+      if (showLabel && !entry.label) {
+        entry.label = makeLabel(o.name);
+        entry.name = o.name;
+        this.level.add(entry.label);
+      }
+      entry.label?.position.set(o.pos.x, y + 1.55, o.pos.z);
+    }
+    this.sheep = this.sheepModel(s).model;
+    if (this.flock.size > world.flock.length) {
+      for (const [id, entry] of this.flock) {
+        if (world.flock.some((o) => o.id === id)) continue;
+        this.level.remove(entry.model.root);
+        if (entry.label) this.level.remove(entry.label);
+        this.flock.delete(id);
+      }
+    }
 
     for (const w of world.wolves) {
       let model = this.wolves.get(w.id);
@@ -558,8 +630,6 @@ export class GameRenderer {
    * y se cierran solas con un muelle (rebotan un poco al cerrarse).
    */
   private animateGates(world: World, dt: number): void {
-    const s = world.sheep;
-    const onGround = s.elevation < 0.5;
     for (const f of this.builds.values()) {
       const leaves = f.userData.leaves as THREE.Object3D[] | undefined;
       if (!leaves) continue;
@@ -567,11 +637,19 @@ export class GameRenderer {
       d.open ??= 0;
       d.vel ??= 0;
       d.side ??= 1;
-      // la oveja en coordenadas de la puerta: z es la dirección en la que se cruza
-      const p = f.worldToLocal(this.gateLocal.set(s.pos.x, 0, s.pos.z));
-      const near = onGround && Math.abs(p.x) < 0.7 && Math.abs(p.z) < 1.05;
+      // la oveja más cercana en coordenadas de la puerta: z es la dirección en la que se cruza
+      let p: THREE.Vector3 | null = null;
+      for (const s of world.flock) {
+        if (s.caught || s.elevation >= 0.5) continue;
+        const q = f.worldToLocal(this.gateLocal.set(s.pos.x, 0, s.pos.z));
+        if (Math.abs(q.x) < 0.7 && Math.abs(q.z) < 1.05) {
+          p = q;
+          break;
+        }
+      }
+      const near = p !== null;
       // al empezar a abrirse, decide el lado: se abre hacia donde va la oveja
-      if (near && d.open < 0.05 && d.vel <= 0) d.side = p.z < 0 ? 1 : -1;
+      if (p && d.open < 0.05 && d.vel <= 0) d.side = p.z < 0 ? 1 : -1;
       const target = near ? 1.35 : 0;
       d.vel += (90 * (target - d.open) - 8 * d.vel) * dt;
       d.open = Math.max(-0.2, Math.min(1.6, d.open + d.vel * dt));
@@ -647,7 +725,8 @@ export class GameRenderer {
         case 'throw': {
           const mesh = createPinecone();
           this.scene.add(mesh);
-          const from = new THREE.Vector3(e.x, 0.9 + world.sheep.elevation * CONFIG.tower.height, e.z);
+          const thrower = world.flock.find((o) => o.id === e.id) ?? world.sheep;
+          const from = new THREE.Vector3(e.x, 0.9 + thrower.elevation * CONFIG.tower.height, e.z);
           this.flying.push({ mesh, from, to: new THREE.Vector3(e.tx ?? e.x, 0.1, e.tz ?? e.z), t: 0 });
           break;
         }

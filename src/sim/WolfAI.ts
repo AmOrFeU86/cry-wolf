@@ -3,7 +3,7 @@ import { Cell, isBuilt, type Vec2 } from './Grid';
 import { clamp, dist, wrapAngle } from './math';
 import { findWolfPath } from './pathfinding';
 import { pieceOfCell } from './pieces';
-import { Wolf, type Scent } from './entities';
+import { Wolf, type Scent, type Sheep } from './entities';
 import type { World } from './World';
 
 /** Comportamiento de los lobos: aparecer, sentidos, modos, caminos, romper construcciones y salto. */
@@ -23,7 +23,7 @@ export class WolfAI {
       const j = side === 2 ? 2 : side === 3 ? n - 2 : k;
       if (g.vertexCost(i, j, 0) !== 0) continue;
       const c = g.vertex(i, j);
-      if (dist(c, world.sheep.pos) < 22 && t < 160) continue;
+      if (world.alive.some((s) => dist(c, s.pos) < 22) && t < 160) continue;
       const w = new Wolf(c.x, c.z);
       w.heading = Math.atan2(-c.x, -c.z); // mirando hacia el centro del mapa
       w.repathTimer = r() * CONFIG.wolf.repathInterval;
@@ -38,21 +38,55 @@ export class WolfAI {
     this.separate();
   }
 
-  /** Vista del lobo: alcance, campo de visión y obstáculos. Gestiona cazar / perder de vista. */
-  private perceive(w: Wolf, dt: number): void {
+  /** Oveja a la que caza el lobo (si sigue en juego). */
+  private preyOf(w: Wolf): Sheep | null {
+    return this.world.flock.find((s) => s.id === w.prey && !s.caught) ?? null;
+  }
+
+  /** ¿Ve el lobo a esta oveja? Alcance, campo de visión y obstáculos. */
+  private canSee(w: Wolf, s: Sheep): boolean {
     const world = this.world;
     const cw = CONFIG.wolf;
-    const s = world.sheep;
-    w.howlCooldown -= dt;
     const d = dist(w.pos, s.pos);
     const angle = Math.abs(wrapAngle(Math.atan2(s.pos.x - w.pos.x, s.pos.z - w.pos.z) - w.heading));
     // si ya te persigue no hace falta que estés en su campo de visión: te está mirando
-    const inView = w.mode === 'hunt' || d < cw.closeSense || angle < cw.fov;
+    const inView = (w.mode === 'hunt' && w.prey === s.id) || d < cw.closeSense || angle < cw.fov;
     // subida a una torre se la ve desde más lejos y no la tapa nada
     const high = s.tower !== null || s.crossing !== null;
-    w.sees = d < world.sightRange * (high ? CONFIG.tower.sightBonus : 1) && inView && (high || world.grid.sightLine(w.pos, s.pos));
+    return d < world.sightRange * (high ? CONFIG.tower.sightBonus : 1) && inView && (high || world.grid.sightLine(w.pos, s.pos));
+  }
 
-    if (w.sees) {
+  /** Vista del lobo: elige a quién caza (su presa si la sigue viendo; si no, la más cercana que vea). */
+  private perceive(w: Wolf, dt: number): void {
+    const world = this.world;
+    const cw = CONFIG.wolf;
+    w.howlCooldown -= dt;
+    let s = this.preyOf(w);
+    w.sees = s !== null && this.canSee(w, s);
+    if (!w.sees) {
+      let bd = Infinity;
+      for (const o of world.flock) {
+        if (o.caught || o === s || !this.canSee(w, o)) continue;
+        const d = dist(w.pos, o.pos);
+        if (d < bd) {
+          bd = d;
+          s = o;
+          w.sees = true;
+        }
+      }
+    }
+    if (s) w.prey = s.id;
+    if (!s) {
+      // su presa ya no está (atrapada o se ha ido): a buscar por donde la vio
+      if (w.mode === 'hunt') {
+        w.mode = 'search';
+        w.modeTime = cw.searchTime;
+        w.target = w.lastSeen ? world.clampToMap(w.lastSeen) : null;
+      }
+      w.sees = false;
+    }
+
+    if (w.sees && s) {
       w.lostTime = 0;
       if (w.mode !== 'hunt') {
         w.mode = 'hunt';
@@ -100,7 +134,6 @@ export class WolfAI {
   private updateWolf(w: Wolf, dt: number): void {
     const world = this.world;
     const cw = CONFIG.wolf;
-    const s = world.sheep;
 
     // mientras muerde una construcción no se le acaba la paciencia (buscar, seguir el rastro...)
     const wasBiting = w.attacking !== null;
@@ -109,14 +142,15 @@ export class WolfAI {
     w.pounceCooldown -= dt;
     if (!wasBiting) w.modeTime -= dt;
     this.perceive(w, dt);
-    if (this.updatePounce(w, dt)) return;
+    const s = this.preyOf(w);
+    if (this.updatePounce(w, s, dt)) return;
 
     let speed = cw.searchSpeed;
     // el lobo grande no siempre puede llegar al punto exacto (ver goalReach)
     const arrived = () => !w.target || dist(w.pos, w.target) < cw.goalReach + 0.3;
     switch (w.mode) {
       case 'hunt':
-        w.target = { x: s.pos.x, z: s.pos.z };
+        if (s) w.target = { x: s.pos.x, z: s.pos.z };
         speed = cw.speed + world.night.speedGrowth * world.survived;
         break;
       case 'investigate':
@@ -158,7 +192,10 @@ export class WolfAI {
         speed = cw.wanderSpeed;
         if (arrived() || w.modeTime <= 0) {
           const towardSheep = world.rng() < cw.wanderTowardSheep;
-          w.target = this.randomPointNear(towardSheep ? s.pos : w.pos, towardSheep ? 12 : 14);
+          // con varias ovejas, hacia una cualquiera (en solitario no gasta números aleatorios de más)
+          const alive = world.alive;
+          const near = towardSheep && alive.length ? alive[alive.length > 1 ? Math.floor(world.rng() * alive.length) : 0] : null;
+          w.target = this.randomPointNear(near ? near.pos : w.pos, near ? 12 : 14);
           w.modeTime = 8;
         }
         break;
@@ -280,13 +317,13 @@ export class WolfAI {
   }
 
   /** Máquina de estados del salto. Devuelve true si controla el movimiento este frame. */
-  private updatePounce(w: Wolf, dt: number): boolean {
+  private updatePounce(w: Wolf, s: Sheep | null, dt: number): boolean {
     const world = this.world;
     const cw = CONFIG.wolf;
-    const s = world.sheep;
     w.phaseTime -= dt;
     switch (w.phase) {
       case 'chase': {
+        if (!s) return false;
         const d = dist(w.pos, s.pos);
         if (w.sees && w.pounceCooldown <= 0 && d < cw.pounceRange && world.grid.lineOfSight(w.pos, s.pos, cw.radius * 0.9)) {
           w.phase = 'windup';
@@ -297,7 +334,7 @@ export class WolfAI {
       }
       case 'windup': {
         // se agacha, frena y apunta (con giro limitado)
-        const desired = Math.atan2(s.pos.x - w.pos.x, s.pos.z - w.pos.z);
+        const desired = s ? Math.atan2(s.pos.x - w.pos.x, s.pos.z - w.pos.z) : w.heading;
         w.heading = wrapAngle(w.heading + clamp(wrapAngle(desired - w.heading), -cw.turnRate * dt, cw.turnRate * dt));
         w.speed = Math.max(0, w.speed - 20 * dt);
         this.move(w, dt);
@@ -314,10 +351,10 @@ export class WolfAI {
         const hit = this.move(w, dt);
         if (w.phaseTime <= 0 || hit) {
           // ¡por los pelos! el salto acaba muy cerca pero sin atraparla
-          const d = dist(w.pos, s.pos);
-          if (d > cw.catchDistance && d < cw.catchDistance + 1.2 && !s.tower) {
+          const d = s ? dist(w.pos, s.pos) : Infinity;
+          if (s && d > cw.catchDistance && d < cw.catchDistance + 1.2 && !s.tower) {
             world.stats.closeCalls++;
-            world.events.push({ type: 'closeCall', x: s.pos.x, z: s.pos.z });
+            world.events.push({ type: 'closeCall', x: s.pos.x, z: s.pos.z, id: s.id });
           }
           w.phase = 'recover';
           w.phaseTime = cw.recoverTime;

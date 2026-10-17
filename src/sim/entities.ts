@@ -1,6 +1,7 @@
 import { CONFIG } from '../config';
 import type { Vec2 } from './Grid';
 import type { ItemId } from './pieces';
+import type { BuildTarget } from './World';
 
 /** Intención del jugador en un frame. Es lo que en multijugador se enviará al servidor. */
 export interface PlayerInput {
@@ -37,6 +38,11 @@ export const emptyInput = (): PlayerInput => ({
 });
 
 export class Sheep {
+  /** En multijugador, el id del jugador; en solitario 0. */
+  id = 0;
+  name = '';
+  /** Atrapada por un lobo: ya no juega (en solitario la partida acaba). */
+  caught = false;
   pos: Vec2 = { x: 0.5, z: 0.5 };
   vel: Vec2 = { x: 0, z: 0 };
   facing = 0; // ángulo; dirección = (sin, cos)
@@ -56,6 +62,17 @@ export class Sheep {
   elevation = 0;
   stun = 0;
   throwCooldown = 0;
+  /** Lo que tiene a mano según su última orden (para el HUD y el render). */
+  buildTarget: BuildTarget | null = null;
+  nearGrass: Grass | null = null;
+  /** Torre a la que se puede subir desde donde está. */
+  nearTower: [number, number] | null = null;
+  /** Puertas (índice de celda) junto a las que está: suenan al llegar. */
+  nearGates = new Set<number>();
+  scentTimer = 0;
+  lastScent: Scent | null = null;
+  noiseFx = 0;
+  lastNoiseR = 0;
 
   get speed(): number {
     return Math.hypot(this.vel.x, this.vel.z);
@@ -89,6 +106,8 @@ export class Wolf {
   howlCooldown = 0;
   lostTime = 0;
   trackT = 0; // momento de la huella que está siguiendo
+  /** Oveja a la que caza o vio por última vez (id). */
+  prey: number | null = null;
 
   constructor(x: number, z: number) {
     this.pos = { x, z };
