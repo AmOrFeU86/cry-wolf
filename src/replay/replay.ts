@@ -24,6 +24,8 @@ export interface ReplayFrame {
 export interface Replay {
   version: 1;
   seed: number;
+  /** Índice de la noche (sin él: la última). */
+  night?: number;
   brain: string;
   result: 'won' | 'lost';
   time: number;
@@ -77,6 +79,7 @@ export class ReplayRecorder {
     return {
       version: 1,
       seed: w.seed,
+      night: w.nightIndex,
       brain,
       result: w.state === 'won' ? 'won' : 'lost',
       time: r2(w.time),

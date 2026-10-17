@@ -504,3 +504,77 @@ button:active {
   accent-color: #82bf5a;
   cursor: pointer;
 }
+
+.slot.locked {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+.slot.locked::after {
+  content: '🔒';
+  position: absolute;
+  top: 2px;
+  right: 5px;
+  font-size: 12px;
+}
+
+#callout.night {
+  color: #c4d2ff;
+  text-align: center;
+}
+
+#callout.night small {
+  display: block;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+#callout.show.night {
+  animation-duration: 3.2s;
+}
+
+#nights {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+#nights button {
+  margin: 0;
+  font-size: 15px;
+  padding: 6px 12px;
+  background: #e9e0cf;
+  border-bottom-color: #c4b69c;
+  color: #8a6a3a;
+  text-shadow: none;
+}
+
+#nights button.selected {
+  background: #f2b84b;
+  border-bottom-color: #c98a24;
+  color: #fff;
+}
+
+#nights button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}
+
+.buttons {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.buttons button {
+  padding: 10px 26px;
+}
+
+button.secondary {
+  background: #c4b69c;
+  border-bottom-color: #9c8c70;
+}

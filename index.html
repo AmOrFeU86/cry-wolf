@@ -19,6 +19,7 @@
       <div id="top-left">
         <div class="pill" title="Lana">🧶 <span id="wool">0</span></div>
         <div class="pill" title="Lobos">🐺 <span id="wolves">0</span></div>
+        <div class="pill" title="Noche">🌙 Noche <span id="night">1</span></div>
       </div>
       <div id="timer">3:00</div>
       <div id="daytime" title="Hora del día">🌄</div>
@@ -39,7 +40,8 @@
       <div class="card">
         <div class="emoji">🐑 🐺</div>
         <h1>¡Que viene el lobo!</h1>
-        <p>Eres una oveja y los lobos te buscan. <b>Sobrevive 3 minutos.</b></p>
+        <p>Eres una oveja y los lobos te buscan. <b>Sobrevive hasta que acabe la noche.</b>
+          Cada noche que superas trae más lobos… y piezas nuevas para defenderte.</p>
         <p>Tienes unos segundos para prepararte: come hierba, consigue lana y construye vallas.
           Los lobos no saben dónde estás: <b>esconderte tras los árboles</b> y no hacer ruido (correr, construir) es tu mejor arma.</p>
         <p>Las vallas frenan pero se ve a través; <b>setos, muros y puertas tapan la vista</b>. Por las puertas pasas tú, los lobos no.
@@ -52,6 +54,7 @@
           <li><kbd>B</kbd> / <kbd>1-7</kbd> construir</li>
           <li><kbd>Click</kbd> colocar · <kbd>Dcho</kbd> quitar</li>
         </ul>
+        <div id="nights"></div>
         <button id="play">Jugar</button>
         <div class="volume">
           <label>🎵 Música <input type="range" min="0" max="100" data-vol="music" /></label>
@@ -77,7 +80,11 @@
         <h2 id="end-title"></h2>
         <p id="end-text"></p>
         <div id="end-score"></div>
-        <button id="again">Jugar otra vez</button>
+        <div class="buttons">
+          <button id="next" class="hidden"></button>
+          <button id="again">Repetir noche</button>
+          <button id="to-menu" class="secondary">Menú</button>
+        </div>
       </div>
     </div>
 

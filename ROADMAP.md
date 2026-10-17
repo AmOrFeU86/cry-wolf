@@ -52,7 +52,7 @@ Cada cambio de balance se prueba con bots: `npm run sim` (programado, gratis) y
 - [x] Desde arriba se puede construir y lanzar piñas
 - [x] Bots: acción `tower` (`npm run sim -- --extras`)
 - [ ] Los lobos se marcan aunque estén tras árboles (estando arriba)
-- [ ] Ajustar tiempo de subida (1 s es mortal con un lobo cerca: ¿0,6 s?)
+- [x] Tiempo de subida: 0,6 s (1 s era mortal con un lobo cerca)
 
 **Puente colgante** (tecla 6, 4 de lana) — idea del jugador
 - [x] Subida a una torre, apuntar a otra torre a ≤ 6 m → se tiende un puente entre las dos
@@ -96,10 +96,11 @@ Cada cambio de balance se prueba con bots: `npm run sim` (programado, gratis) y
 - [ ] 🍀 Trébol dorado: aparece a veces en sitios peligrosos y da mucha lana
 
 **Dificultad**: ahora los bots ganan 0-6% → adelantar las noches de la fase 7
-- [ ] Noches con dificultad creciente ("Noche 1: un lobo, 90 s"...) para que ganar la primera sea alcanzable
+- [x] Noches con dificultad creciente (`CONFIG.nights`): noche 1 = un lobo y 90 s … noche 5 = la dificultad de antes.
+      Se eligen en el menú, al ganar se desbloquea la siguiente (localStorage) y hay récord por noche
 
 **Correcciones**
-- [ ] Subida a la torre: probar 0,6 s en vez de 1 s
+- [x] Subida a la torre: 0,6 s en vez de 1 s
 - [ ] Instrucciones de jev para que use de verdad la torre
 
 ## 🌳 Fase 4 — Esconderse y trampas
@@ -121,14 +122,15 @@ Cada uno contrarresta una estrategia distinta:
 ## ⭐ Fase 6 — Progresión a largo plazo
 
 - [ ] Experiencia por partida: sobrevivir, despistar lobos, mordiscos aguantados, corderos rescatados
-- [ ] Niveles que desbloquean piezas (seto, puerta, torre, trampas…)
+- [x] Las noches desbloquean piezas: 1 valla/seto/piña · 2 puerta · 3 muro/torre · 4 puente (las bloqueadas salen con 🔒)
 - [ ] Mejoras permanentes: más lana por bocado, construir más rápido, esquive extra
 - [ ] Se guarda en el navegador (localStorage)
 
 ## 🌙 Fase 7 — Objetivos y modo largo
 
 - [ ] Corderitos perdidos: rescatarlos, te siguen y hay que protegerlos
-- [ ] Día y noche: de noche ves menos (solo ojos brillantes), los lobos también
+- [x] Al anochecer (final de cada partida) los lobos ven menos (×0,6) pero huelen mejor (×1,6). Aviso "🌙 Anochece"
+- [ ] De noche la oveja también ve menos (solo ojos brillantes)
 - [ ] Modo por noches: de día comes y construyes, de noche vienen los lobos;
       la base se mantiene de una noche a otra y cada noche es más difícil
 - [ ] Casa (2×2): dentro no te ven ni huelen, recuperas aguante; si te ven entrar, la asedian
@@ -188,5 +190,22 @@ Cada uno contrarresta una estrategia distinta:
 - jev `--extras --piece hedge` (5): **nunca eligió la torre** y casi no lanzó piñas (1.2/partida).
   Sobrevivió 1:47, pero no gracias a la torre. → jev todavía no ha probado la torre de verdad.
 
+### 2026-10-17 · Noches, oscuridad y roturas (bot programado, 50 partidas por prueba)
+
+- `breakPenalty` 12 → 4: se rompen el doble de piezas (0,9 por partida, antes 0,4) y se sobrevive lo mismo.
+  Con 8/6/2 no mejora. Lo que más limita es que el bot pone piezas sueltas en campo abierto.
+- Oscuridad (vista ×0,6, olfato ×1,6): casi no cambia los números en la noche 5, porque el bot suele morir antes de que anochezca.
+- Torre a 0,6 s: el bot programado no construye torres, así que no se puede medir con él (`check-build` pasa).
+- Nuevas opciones del simulador: `--night N` y `--set wolf.breakPenalty=6` (cambiar balance sin tocar config.ts).
+
+| Noche | Lobos (máx · cada) | Tiempo | Victorias | Supervivencia media |
+|---|---|---|---|---|
+| 1 | 1 | 1:30 | 44/50 | 1:25 |
+| 2 | 2 · 40 s | 2:00 | 30/50 | 1:43 |
+| 3 | 3 · 45 s | 2:30 | 22/50 | 2:00 |
+| 4 | 4 · 50 s | 3:00 | 11/50 | 2:16 |
+| 5 | 5 · 35 s | 3:00 | 5/50 | 1:48 |
+
 ### Pendiente de probar a mano
+- [ ] Que la curva de noches se sienta bien jugando (un jugador debería hacerlo mejor que el bot)
 - [ ] Que apuntar con la mira se sienta bien (distancia, altura de la mira, mantener click para filas)

@@ -20,6 +20,7 @@ export type GameEventType =
   | 'land'
   | 'escape' // un lobo que te cazaba te ha perdido
   | 'closeCall' // un salto que ha pasado rozando
+  | 'nightfall' // anochece: los lobos ven peor y huelen mejor
   | 'windup' // un lobo se agacha para saltar
   | 'wolfSpawn'
   | 'caught'
@@ -96,6 +97,7 @@ export class World {
   private readonly wolfAI = new WolfAI(this);
   private spawnTimer = CONFIG.prepTime;
   private firstWave = true;
+  private nightfall = false;
   private scentTimer = 0;
   private lastScent: Vec2 | null = null;
   private noiseFx = 0;
@@ -266,6 +268,10 @@ export class World {
 
     this.noiseFx -= dt;
     if (this.noiseFx <= 0) this.lastNoiseR = 0;
+    if (!this.nightfall && this.darkness >= 0.5) {
+      this.nightfall = true;
+      this.events.push({ type: 'nightfall', x: this.sheep.pos.x, z: this.sheep.pos.z });
+    }
     this.updateSheep(dt, input);
     this.updateScent(dt);
     this.updateBuild(input);

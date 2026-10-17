@@ -24,7 +24,7 @@ export class ReplayPlayer {
   private bridgeKey = '';
 
   constructor(readonly replay: Replay) {
-    this.world = new World(replay.seed);
+    this.world = new World(replay.seed, replay.night);
   }
 
   get finished(): boolean {

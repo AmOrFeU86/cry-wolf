@@ -1,6 +1,6 @@
 import type { PlayerInput } from '../sim/entities';
 import type { Vec2 } from '../sim/Grid';
-import { ITEMS } from '../sim/pieces';
+import { ITEMS, type ItemId } from '../sim/pieces';
 
 /** Traduce teclado y ratón a PlayerInput y controla la cámara orbital. */
 export class InputController {
@@ -9,6 +9,8 @@ export class InputController {
   buildMode = false;
   /** Lo elegido en la barra (índice en ITEMS). */
   item = 0;
+  /** Lo desbloqueado en esta noche: la rueda solo pasa por esto. */
+  items: ItemId[] = [...ITEMS];
   enabled = false;
   /** Modo espectador (repeticiones): arrastrar con el ratón gira la cámara, sin capturar el puntero. */
   spectator = false;
@@ -64,7 +66,12 @@ export class InputController {
         if (!this.enabled || this.spectator || !this.buildMode) return;
         e.preventDefault();
         const n = ITEMS.length;
-        this.item = (this.item + (e.deltaY > 0 ? 1 : -1) + n) % n;
+        const step = e.deltaY > 0 ? 1 : -1;
+        // saltar lo que aún está bloqueado
+        for (let k = 0; k < n; k++) {
+          this.item = (this.item + step + n) % n;
+          if (this.items.includes(ITEMS[this.item])) break;
+        }
       },
       { passive: false },
     );

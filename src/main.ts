@@ -2,7 +2,8 @@ import './style.css';
 import { InputController } from './client/InputController';
 import { Sfx, type VolumeKind } from './audio/Sfx';
 import { GameRenderer } from './render/GameRenderer';
-import { ITEMS } from './sim/pieces';
+import { LAST_NIGHT, NIGHTS, itemsForNight } from './sim/nights';
+import { itemInfo, ITEMS } from './sim/pieces';
 import { scoreOf } from './sim/score';
 import { World } from './sim/World';
 import { formatTime, Hud } from './ui/Hud';
@@ -26,6 +27,7 @@ const screens = {
 };
 const BEST_KEY = 'wolfsheep.best';
 const BEST_SCORE_KEY = 'wolfsheep.bestScore';
+const NIGHT_KEY = 'wolfsheep.night'; // última noche desbloqueada (índice)
 const SLOWMO_SCALE = 0.3;
 const SLOWMO_TIME = 0.5; // segundos reales
 
@@ -34,6 +36,10 @@ renderer.setWorld(world);
 let mode: Mode = 'menu';
 let replay: ReplayPlayer | null = null;
 let slowmo = 0;
+/** Récord de tiempo de cada noche (el de la última noche es el récord de siempre). */
+const bestKey = (night: number) => (night === LAST_NIGHT ? BEST_KEY : `${BEST_KEY}.${night + 1}`);
+const unlockedNight = () => Math.min(LAST_NIGHT, loadBest(NIGHT_KEY));
+let selectedNight = unlockedNight();
 
 // ---------------------------------------------------------------- repeticiones (?replay=nombre)
 const replayName = new URLSearchParams(location.search).get('replay');
@@ -83,10 +89,11 @@ function saveBest(t: number, key = BEST_KEY): void {
   }
 }
 
-/** Texto grande y rápido en pantalla ("¡Por los pelos!"). */
+/** Texto grande y rápido en pantalla ("¡Por los pelos!"), con una línea pequeña opcional debajo. */
 const calloutEl = document.getElementById('callout')!;
-function callout(text: string, cls: string): void {
+function callout(text: string, cls: string, sub = ''): void {
   calloutEl.textContent = text;
+  if (sub) calloutEl.insertAdjacentHTML('beforeend', `<small>${sub}</small>`);
   calloutEl.className = '';
   void calloutEl.offsetWidth; // reiniciar la animación
   calloutEl.className = `show ${cls}`;
@@ -100,6 +107,8 @@ function epicMoments(): void {
       if (mode === 'playing') slowmo = SLOWMO_TIME;
     } else if (e.type === 'escape') {
       callout('¡Despistado!', 'escape');
+    } else if (e.type === 'nightfall') {
+      callout('🌙 Anochece', 'night', 'Los lobos ven peor… pero huelen mejor');
     }
   }
 }
@@ -109,14 +118,43 @@ function showScreen(name: keyof typeof screens | null): void {
 }
 
 function updateBestLabel(): void {
-  const best = loadBest();
-  document.getElementById('best')!.textContent = best > 0 ? `Récord: ${formatTime(best)}` : '';
+  const best = loadBest(bestKey(selectedNight));
+  document.getElementById('best')!.textContent = best > 0 ? `Récord de la noche ${selectedNight + 1}: ${formatTime(best)}` : '';
 }
 
-function start(): void {
-  world = new World();
+/** Botones del menú para elegir noche: las desbloqueadas se pueden elegir. */
+function renderNights(): void {
+  const box = document.getElementById('nights')!;
+  box.innerHTML = '';
+  NIGHTS.forEach((_, k) => {
+    const b = document.createElement('button');
+    const locked = k > unlockedNight();
+    b.textContent = locked ? `🔒 Noche ${k + 1}` : `Noche ${k + 1}`;
+    b.disabled = locked;
+    b.classList.toggle('selected', k === selectedNight);
+    b.addEventListener('click', () => {
+      selectedNight = k;
+      renderNights();
+      updateBestLabel();
+    });
+    box.appendChild(b);
+  });
+}
+
+function toMenu(): void {
+  mode = 'menu';
+  hud.show(false);
+  renderNights();
+  updateBestLabel();
+  showScreen('menu');
+}
+
+function start(night = selectedNight): void {
+  selectedNight = night;
+  world = new World(undefined, night);
   renderer.setWorld(world);
   controls.reset();
+  controls.items = world.items;
   controls.yaw = 0;
   controls.pitch = 0.55;
   mode = 'playing';
@@ -147,13 +185,26 @@ function end(): void {
   controls.enabled = false;
   controls.unlock();
   const t = world.survived;
-  const prev = loadBest();
+  const night = world.nightIndex;
+  const prev = loadBest(bestKey(night));
   const record = t > prev;
-  if (record) saveBest(t);
+  if (record) saveBest(t, bestKey(night));
   const won = world.state === 'won';
-  document.getElementById('end-title')!.textContent = won ? '¡Has sobrevivido!' : '¡Te han cazado!';
-  document.getElementById('end-text')!.textContent =
-    `Tiempo: ${formatTime(t)}` + (record ? ' · ¡Nuevo récord!' : prev > 0 ? ` · Récord: ${formatTime(prev)}` : '');
+  const hasNext = won && night < LAST_NIGHT;
+  if (hasNext && night + 1 > unlockedNight()) saveBest(night + 1, NIGHT_KEY);
+  document.getElementById('end-title')!.textContent = won
+    ? night === LAST_NIGHT
+      ? '¡Has sobrevivido a la última noche!'
+      : `¡Has sobrevivido a la noche ${night + 1}!`
+    : '¡Te han cazado!';
+  const fresh = hasNext ? itemsForNight(night + 1).filter((id) => !world.items.includes(id)) : [];
+  document.getElementById('end-text')!.innerHTML =
+    `Tiempo: ${formatTime(t)}` +
+    (record ? ' · ¡Nuevo récord!' : prev > 0 ? ` · Récord: ${formatTime(prev)}` : '') +
+    (fresh.length ? `<br>🔓 Desbloqueas: ${fresh.map((id) => `${itemInfo(id).icon} ${itemInfo(id).name}`).join(', ')}` : '');
+  const next = document.getElementById('next')!;
+  next.classList.toggle('hidden', !hasNext);
+  next.textContent = `Noche ${night + 2} ▶`;
 
   const score = scoreOf(world);
   const prevScore = loadBest(BEST_SCORE_KEY);
@@ -168,8 +219,10 @@ function end(): void {
   }, 900);
 }
 
-document.getElementById('play')!.addEventListener('click', start);
-document.getElementById('again')!.addEventListener('click', start);
+document.getElementById('play')!.addEventListener('click', () => start());
+document.getElementById('again')!.addEventListener('click', () => start(world.nightIndex));
+document.getElementById('next')!.addEventListener('click', () => start(world.nightIndex + 1));
+document.getElementById('to-menu')!.addEventListener('click', toMenu);
 document.getElementById('resume')!.addEventListener('click', resume);
 document.addEventListener('pointerlockchange', () => {
   if (!controls.locked && mode === 'playing') pause();
@@ -195,6 +248,7 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+renderNights();
 updateBestLabel();
 
 // Acceso para depurar desde la consola del navegador (solo en desarrollo)

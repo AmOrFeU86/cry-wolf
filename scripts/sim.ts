@@ -7,6 +7,8 @@
  * Opciones: --brain scripted|jev  --games N  --seed S  --interval 0.5  --concurrency N
  *           --piece fence|hedge|wall|gate  (lo que construye el bot)
  *           --extras  (el bot puede subir a torres y lanzar piñas)
+ *           --night N  (noche 1-5; por defecto la última, la dificultad completa)
+ *           --set wolf.breakPenalty=6  (cambia un número de CONFIG para probar; se puede repetir)
  * Guarda la mejor y la peor partida en public/replays/ para verlas en el navegador.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -14,6 +16,7 @@ import { CONFIG } from '../src/config';
 import { JevBrain, ScriptedBrain, type Brain, type Decision } from '../src/bot/brains';
 import { ACTIONS, Pilot, type Action } from '../src/bot/Pilot';
 import { ReplayRecorder, type Replay } from '../src/replay/replay';
+import { LAST_NIGHT, NIGHTS } from '../src/sim/nights';
 import { PIECES, type PieceId } from '../src/sim/pieces';
 import { scoreOf } from '../src/sim/score';
 import { World } from '../src/sim/World';
@@ -31,6 +34,20 @@ const concurrency = Number(arg('concurrency', brainName === 'jev' ? '5' : '1'));
 const piece = arg('piece', 'fence') as PieceId;
 if (!PIECES.includes(piece)) throw new Error(`--piece debe ser ${PIECES.join('|')}`);
 const extras = process.argv.includes('--extras');
+const night = Number(arg('night', String(LAST_NIGHT + 1))) - 1;
+if (!NIGHTS[night]) throw new Error(`--night debe ser 1-${NIGHTS.length}`);
+// --set a.b=valor: cambiar balance sin tocar config.ts
+process.argv.forEach((a, k) => {
+  if (a !== '--set') return;
+  const [path, value] = process.argv[k + 1].split('=');
+  const keys = path.split('.');
+  let obj: Record<string, unknown> = CONFIG as unknown as Record<string, unknown>;
+  for (const key of keys.slice(0, -1)) obj = obj[key] as Record<string, unknown>;
+  const last = keys[keys.length - 1];
+  if (typeof obj?.[last] !== 'number') throw new Error(`--set: ${path} no es un número de CONFIG`);
+  obj[last] = Number(value);
+  console.log(`CONFIG.${path} = ${value}`);
+});
 const DT = 1 / 30;
 
 function makeBrain(): Brain {
@@ -65,7 +82,7 @@ interface GameResult {
 }
 
 async function playGame(seed: number): Promise<GameResult> {
-  const world = new World(seed);
+  const world = new World(seed, night);
   const pilot = new Pilot(world, piece);
   const brain = makeBrain();
   const rec = new ReplayRecorder(world);
@@ -130,7 +147,7 @@ const median = (a: number[]) => {
 };
 
 async function main() {
-  console.log(`Cerebro: ${brainName} · construye: ${piece}${extras ? ' · torre y piñas' : ''} · partidas: ${games} · decisión cada ${interval}s\n`);
+  console.log(`Cerebro: ${brainName} · noche ${night + 1} · construye: ${piece}${extras ? ' · torre y piñas' : ''} · partidas: ${games} · decisión cada ${interval}s\n`);
   const seeds = Array.from({ length: games }, (_, k) => baseSeed + k);
   const results: GameResult[] = [];
   let next = 0;

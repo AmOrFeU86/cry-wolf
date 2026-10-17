@@ -38,7 +38,7 @@ export const CONFIG = {
     goalReach: 1.4, // cuando no caza, le basta con acercarse esto al punto al que va
     biteDamage: 30, // daño por segundo a construcciones
     repathInterval: 0.4,
-    breakPenalty: 12, // coste extra de romper una construcción (por cada 150 de vida) al buscar camino
+    breakPenalty: 4, // coste extra de romper una construcción (por cada 150 de vida) al buscar camino
     firstWolves: 1, // llegan al acabar la preparación (cuántos más y cada cuánto: ver nights)
     // Salto de ataque: se agacha (aviso), salta en línea recta y queda agotado un momento
     pounceRange: 4.5,
@@ -73,7 +73,7 @@ export const CONFIG = {
   },
   tower: {
     height: 2.2, // altura a la que está la oveja arriba (solo visual)
-    climbTime: 1, // segundos quieta a su lado manteniendo E (vulnerable mientras)
+    climbTime: 0.6, // segundos quieta a su lado manteniendo E (vulnerable mientras)
     fallStun: 0.6, // si la derriban contigo encima, caes aturdida
     sightBonus: 1.4, // arriba te ven desde más lejos, y ni árboles ni setos te tapan
   },
@@ -104,14 +104,14 @@ export const CONFIG = {
   nights: [
     { survivalTime: 90, maxWolves: 1, spawnInterval: 35, speedGrowth: 0, unlock: ['fence', 'hedge', 'pinecone'] },
     { survivalTime: 120, maxWolves: 2, spawnInterval: 40, speedGrowth: 0.003, unlock: ['gate'] },
-    { survivalTime: 150, maxWolves: 3, spawnInterval: 40, speedGrowth: 0.004, unlock: ['wall', 'tower'] },
-    { survivalTime: 180, maxWolves: 4, spawnInterval: 38, speedGrowth: 0.005, unlock: ['bridge'] },
+    { survivalTime: 150, maxWolves: 3, spawnInterval: 45, speedGrowth: 0.004, unlock: ['wall', 'tower'] },
+    { survivalTime: 180, maxWolves: 4, spawnInterval: 50, speedGrowth: 0.005, unlock: ['bridge'] },
     { survivalTime: 180, maxWolves: 5, spawnInterval: 35, speedGrowth: 0.006, unlock: [] },
   ],
 
   // Al final de cada partida anochece: los lobos ven menos pero huelen mejor
   darkness: {
-    sight: 1, // multiplicador del alcance de la vista con noche cerrada
-    smell: 1, // multiplicador del olfato con noche cerrada
+    sight: 0.6, // multiplicador del alcance de la vista con noche cerrada
+    smell: 1.6, // multiplicador del olfato con noche cerrada
   },
 };
