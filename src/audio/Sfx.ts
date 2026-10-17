@@ -256,6 +256,9 @@ export class Sfx {
       case 'land':
         this.thud(at, 0.5);
         break;
+      case 'gate':
+        if (!this.play('creak', at, { vol: 0.4, rate: 1.25 })) this.knock(at, 260);
+        break;
       case 'climb':
         if (!this.play('creak', at, { vol: 0.6 })) this.knock(at, 300);
         break;

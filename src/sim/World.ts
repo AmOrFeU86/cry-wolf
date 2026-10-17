@@ -21,6 +21,7 @@ export type GameEventType =
   | 'escape' // un lobo que te cazaba te ha perdido
   | 'closeCall' // un salto que ha pasado rozando
   | 'nightfall' // anochece: los lobos ven peor y huelen mejor
+  | 'gate' // la oveja llega a una puerta (se abre)
   | 'windup' // un lobo se agacha para saltar
   | 'wolfSpawn'
   | 'caught'
@@ -98,6 +99,8 @@ export class World {
   private spawnTimer = CONFIG.prepTime;
   private firstWave = true;
   private nightfall = false;
+  /** Puertas (índice de celda) junto a las que está la oveja: suenan al llegar. */
+  private nearGates = new Set<number>();
   private scentTimer = 0;
   private lastScent: Vec2 | null = null;
   private noiseFx = 0;
@@ -403,6 +406,7 @@ export class World {
     s.pos.x += s.vel.x * dt;
     s.pos.z += s.vel.z * dt;
     this.grid.collideCircle(s.pos, c.radius, true);
+    this.checkGates();
 
     if (moving) {
       const target = Math.atan2(mx, mz);
@@ -657,6 +661,25 @@ export class World {
       this.events.push({ type: 'land', x: pr.x, z: pr.z });
       this.makeNoise(CONFIG.pinecone.noise, pr);
     }
+  }
+
+  /** Al acercarse a una puerta, se abre (evento para el sonido; la animación la hace el render). */
+  private checkGates(): void {
+    const s = this.sheep;
+    const g = this.grid;
+    const [ci, cj] = g.toCell(s.pos.x, s.pos.z);
+    const near = new Set<number>();
+    for (let j = cj - 1; j <= cj + 1; j++) {
+      for (let i = ci - 1; i <= ci + 1; i++) {
+        if (g.get(i, j) !== Cell.Gate) continue;
+        const c = g.center(i, j);
+        if (dist(c, s.pos) > 1) continue;
+        const k = j * g.n + i;
+        near.add(k);
+        if (!this.nearGates.has(k)) this.events.push({ type: 'gate', x: c.x, z: c.z });
+      }
+    }
+    this.nearGates = near;
   }
 
   /** Torre pegada a la oveja (en las 8 celdas de alrededor). */

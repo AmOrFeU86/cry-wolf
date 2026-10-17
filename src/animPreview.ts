@@ -1,6 +1,6 @@
 // Banco de pruebas de las animaciones (solo en desarrollo: /anim.html)
 import * as THREE from 'three';
-import { createRabbit, createSheep, createWolf } from './render/models';
+import { createPiece, createRabbit, createSheep, createWolf } from './render/models';
 import { CONFIG } from './config';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -64,7 +64,29 @@ if (only === 'rabbit') {
   camera.position.set(0.1, 0.9, 3.6);
   camera.lookAt(0.05, 0.2, 1.8);
 }
-if (only && only !== 'rabbit') {
+// ?only=gate: tres puertas entre vallas (cerrada, entreabierta, abierta con la oveja pasando)
+if (only === 'gate') {
+  wolf.root.visible = false;
+  for (const r of rabbits) r.root.visible = false;
+  [0, 0.6, 1.35].forEach((open, k) => {
+    const x = (k - 1) * 3.2;
+    for (const dx of [-2, -1, 1, 2]) {
+      const f = createPiece('fence');
+      f.position.x = x + dx;
+      scene.add(f);
+    }
+    const gate = createPiece('gate');
+    gate.position.x = x;
+    const [l, r] = gate.userData.leaves as THREE.Object3D[];
+    l.rotation.y = -open;
+    r.rotation.y = Math.PI + open;
+    scene.add(gate);
+  });
+  sheep.root.position.set(3.2, 0, 0.15);
+  camera.position.set(2.5, 4.2, 7.5);
+  camera.lookAt(0, 0.4, 0);
+}
+if (only && only !== 'rabbit' && only !== 'gate') {
   (only === 'sheep' ? wolf : sheep).root.visible = false;
   const target = only === 'sheep' ? sheep.root : wolf.root;
   target.position.x = 0;
@@ -93,6 +115,8 @@ function step(dt: number) {
     angle += dt * 0.8;
     sheep.root.rotation.y = angle;
     wolf.root.rotation.y = angle;
+  } else if (only === 'gate') {
+    sheep.root.rotation.y = 0; // cruzando la puerta (hacia +Z)
   } else {
     sheep.root.rotation.y = Math.PI / 2;
     wolf.root.rotation.y = Math.PI / 2;

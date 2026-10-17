@@ -802,21 +802,28 @@ const wallGeos = (() => {
   return { a: merge(a), b: merge(b) };
 })();
 
+// Puerta de dos hojas: los postes y el travesaño quedan fijos; cada hoja gira sobre su bisagra (ver GATE_HINGE).
+const GATE_HINGE = 0.38; // distancia del centro a cada bisagra
 const gateGeos = (() => {
-  const frame: THREE.BufferGeometry[] = [
-    place(BOX, -0.44, 0.75, 0, 0, 0, 0, 0.12, 1.5, 0.96),
-    place(BOX, 0.44, 0.75, 0, 0, 0, 0, 0.12, 1.5, 0.96),
-    place(BOX, 0, 1.45, 0, 0, 0, 0, 1.0, 0.12, 0.96),
-  ];
-  const planks: THREE.BufferGeometry[] = [];
-  for (let k = 0; k < 5; k++) planks.push(place(BOX, -0.3 + k * 0.15, 0.68, 0, 0, 0, 0, 0.13, 1.3, 0.1));
-  const iron = merge([
-    place(BOX, 0, 0.35, 0.06, 0, 0, 0, 0.78, 0.07, 0.03),
-    place(BOX, 0, 1.0, 0.06, 0, 0, 0, 0.78, 0.07, 0.03),
-    place(BOX, 0, 0.35, -0.06, 0, 0, 0, 0.78, 0.07, 0.03),
-    place(BOX, 0, 1.0, -0.06, 0, 0, 0, 0.78, 0.07, 0.03),
+  // postes finos con remate y travesaño arriba: con la puerta abierta se ven las hojas, no un hueco
+  const frame = merge([
+    place(BOX, -0.45, 0.78, 0, 0, 0, 0, 0.14, 1.56, 0.14),
+    place(BOX, 0.45, 0.78, 0, 0, 0, 0, 0.14, 1.56, 0.14),
+    place(BOX, -0.45, 1.6, 0, 0, Math.PI / 4, 0, 0.17, 0.08, 0.17),
+    place(BOX, 0.45, 1.6, 0, 0, Math.PI / 4, 0, 0.17, 0.08, 0.17),
+    place(BOX, 0, 1.47, 0, 0, 0, 0, 1.06, 0.1, 0.12),
   ]);
-  return { frame: merge(frame), planks: merge(planks), iron };
+  // una hoja con la bisagra en el origen, hacia +X (la otra es la misma girada media vuelta)
+  const planks: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < 3; k++) planks.push(place(BOX, 0.065 + k * 0.12, 0.7, 0, 0, 0, 0, 0.11, 1.25, 0.08));
+  planks.push(place(BOX, 0.19, 0.675, 0.055, 0, 0, -0.47, 0.07, 0.68, 0.03)); // travesaño en diagonal
+  const iron = merge([
+    place(BOX, 0.18, 0.35, 0.05, 0, 0, 0, 0.36, 0.07, 0.03),
+    place(BOX, 0.18, 1.0, 0.05, 0, 0, 0, 0.36, 0.07, 0.03),
+    place(BOX, 0.18, 0.35, -0.05, 0, 0, 0, 0.36, 0.07, 0.03),
+    place(BOX, 0.18, 1.0, -0.05, 0, 0, 0, 0.36, 0.07, 0.03),
+  ]);
+  return { frame, planks: merge(planks), iron };
 })();
 
 const towerGeos = (() => {
@@ -850,7 +857,19 @@ export function createPiece(piece: 'fence' | 'hedge' | 'wall' | 'gate' | 'tower'
   if (piece === 'hedge') g.add(mesh(hedgeGeos.dark, m(MATS.hedge)), mesh(hedgeGeos.light, m(MATS.hedgeLight)));
   else if (piece === 'wall') g.add(mesh(wallGeos.a, m(MATS.stone)), mesh(wallGeos.b, m(MATS.stoneDark)));
   else if (piece === 'tower') g.add(mesh(towerGeos.stone, m(MATS.stone)), mesh(towerGeos.deck, m(MATS.wood)), mesh(towerGeos.rail, m(MATS.woodDark)));
-  else g.add(mesh(gateGeos.frame, m(MATS.woodDark)), mesh(gateGeos.planks, m(MATS.wood)), mesh(gateGeos.iron, m(MATS.iron)));
+  else {
+    g.add(mesh(gateGeos.frame, m(MATS.woodDark)));
+    // hojas: userData.leaves = [izquierda, derecha], las abre el render al pasar la oveja
+    const leaves = [-1, 1].map((side) => {
+      const leaf = new THREE.Group();
+      leaf.add(mesh(gateGeos.planks, m(MATS.wood)), mesh(gateGeos.iron, m(MATS.iron)));
+      leaf.position.x = side * GATE_HINGE;
+      leaf.rotation.y = side > 0 ? Math.PI : 0;
+      g.add(leaf);
+      return leaf;
+    });
+    g.userData.leaves = leaves;
+  }
   return shadowed(g);
 }
 

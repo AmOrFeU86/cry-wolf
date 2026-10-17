@@ -96,6 +96,7 @@ export class GameRenderer {
     new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, depthWrite: false }),
   );
   private camTarget = new THREE.Vector3();
+  private gateLocal = new THREE.Vector3();
   private alertIcons = new Map<number, THREE.Sprite>();
   private iconSeen = makeIcon('!', '#ff4a3a');
   private iconSearch = makeIcon('?', '#ffd23a');
@@ -447,6 +448,7 @@ export class GameRenderer {
 
     this.rabbits.update(world, dt, this.camera.position);
     this.syncBuilds(world);
+    if (dt > 0) this.animateGates(world, dt);
     this.syncBridges(world);
 
     for (const { model, data } of this.grass) {
@@ -549,6 +551,34 @@ export class GameRenderer {
       this.bridges.add(createBridge(new THREE.Vector3(a.x, BRIDGE_Y, a.z), new THREE.Vector3(b.x, BRIDGE_Y, b.z)));
     }
     this.level.add(this.bridges);
+  }
+
+  /**
+   * Las hojas de las puertas se abren al acercarse la oveja, hacia el lado al que va,
+   * y se cierran solas con un muelle (rebotan un poco al cerrarse).
+   */
+  private animateGates(world: World, dt: number): void {
+    const s = world.sheep;
+    const onGround = s.elevation < 0.5;
+    for (const f of this.builds.values()) {
+      const leaves = f.userData.leaves as THREE.Object3D[] | undefined;
+      if (!leaves) continue;
+      const d = f.userData;
+      d.open ??= 0;
+      d.vel ??= 0;
+      d.side ??= 1;
+      // la oveja en coordenadas de la puerta: z es la dirección en la que se cruza
+      const p = f.worldToLocal(this.gateLocal.set(s.pos.x, 0, s.pos.z));
+      const near = onGround && Math.abs(p.x) < 0.7 && Math.abs(p.z) < 1.05;
+      // al empezar a abrirse, decide el lado: se abre hacia donde va la oveja
+      if (near && d.open < 0.05 && d.vel <= 0) d.side = p.z < 0 ? 1 : -1;
+      const target = near ? 1.35 : 0;
+      d.vel += (90 * (target - d.open) - 8 * d.vel) * dt;
+      d.open = Math.max(-0.2, Math.min(1.6, d.open + d.vel * dt));
+      const a = d.open * d.side;
+      leaves[0].rotation.y = -a;
+      leaves[1].rotation.y = Math.PI + a;
+    }
   }
 
   /** La puerta se alinea con lo que tenga a los lados (por defecto se cruza en dirección Z). */
