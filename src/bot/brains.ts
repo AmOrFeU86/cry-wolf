@@ -1,3 +1,4 @@
+import { CONFIG } from '../config';
 import type { PieceId } from '../sim/pieces';
 import type { World } from '../sim/World';
 import { observe } from './observe';
@@ -55,6 +56,7 @@ The goal is to survive until seconds_left reaches 0. More wolves arrive over tim
 The first seconds are calm (seconds_until_wolves_arrive): a good time to eat and gather wool.
 Wolves do not know where the sheep is: they wander, they see it only within ~16 m if no trees/rocks are in the way, and they hear sprinting, dodging and building.
 Wolves see in a ~115 degree cone in front of them (and notice the sheep within 2.5 m even from behind).
+At the end of the game night falls (night_darkness_percent): in the dark wolves see much less far, but they smell the scent trail from farther away.
 The sheep leaves a scent trail that fades in 25 s; a wolf that crosses it follows it at a speed a bit slower than the sheep's walk, so standing still for long is risky.
 A wolf that sees the sheep howls and calls nearby wolves. Breaking line of sight behind trees makes it lose the sheep and search the area.
 Wolves run slightly faster than the sheep walks, but the sheep can sprint while it has stamina, and turns faster than wolves.
@@ -81,8 +83,11 @@ const criteria = (piece: PieceId, extras: boolean): Partial<Record<Action, strin
   build: `Back away from the nearest wolf while placing barriers between it and the sheep. Needs wool >= build_cost. ${BARRIER[piece]}`,
   ...(extras && {
     tower:
-      'Go to the nearest tower (or build one next to the sheep if wool >= tower_cost) and climb it (takes 1 s standing still). ' +
-      'On top wolves cannot catch the sheep, but they chew the tower down (~20 s for one wolf, faster with several), wolves see the sheep from farther away, and it cannot eat. ' +
+      `Go to the nearest tower (or build one next to the sheep if wool >= tower_cost) and climb it (takes ${CONFIG.tower.climbTime} s standing still). ` +
+      'On top wolves cannot catch the sheep for as long as the tower stands: about 20 s with one wolf biting it, less with several (wolves_biting_tower). ' +
+      'Up there wolves see the sheep from farther away and it cannot eat, so it is a way to buy time, not to hide. ' +
+      'A strong choice to escape a wolf that is chasing the sheep when a tower is close, and above all near the end: ' +
+      'if seconds_left is smaller than the time the tower can still hold, climbing it and staying up wins the game. ' +
       'If already on_tower, choose this to stay up there.',
     distract:
       'Throw a pinecone (pinecone_ready) beyond the nearest wolf that is searching for the sheep: it makes a noise where it lands and lures wolves that are not chasing the sheep away. ' +

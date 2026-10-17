@@ -101,7 +101,7 @@ Cada cambio de balance se prueba con bots: `npm run sim` (programado, gratis) y
 
 **Correcciones**
 - [x] Subida a la torre: 0,6 s en vez de 1 s
-- [ ] Instrucciones de jev para que use de verdad la torre
+- [ ] Instrucciones de jev para que use de verdad la torre (probado: ni explicándole que al final gana la partida)
 
 ## 🌳 Fase 4 — Esconderse y trampas
 
@@ -205,6 +205,27 @@ Cada uno contrarresta una estrategia distinta:
 | 3 | 3 · 45 s | 2:30 | 22/50 | 2:00 |
 | 4 | 4 · 50 s | 3:00 | 11/50 | 2:16 |
 | 5 | 5 · 35 s | 3:00 | 5/50 | 1:48 |
+
+### 2026-10-17 · Noches con jev (10 partidas por escenario, coste total ≈ $0.96)
+
+| Escenario | Victorias | Supervivencia media | Rotas/partida | Comparación |
+|---|---|---|---|---|
+| Noche 1, seto | 8/10 | 1:22 de 1:30 | 1.1 | — |
+| Noche 2, puerta | 6/10 | 1:40 de 2:00 | 1.3 | — |
+| Noche 3, seto + torre/piñas | 3/10 (y 3/10 al repetir) | 1:39 / 1:46 | 0.4 / 1.6 | — |
+| Noche 3, muro | 0/10 | 1:19 | 0.1 | come ~75% del tiempo para pagar muros y le cazan comiendo |
+| Noche 5, seto + torre/piñas | 1/10 (y 0/10 al repetir) | 1:54 / 1:13 | 0.4 / 0.9 | antes 0/5, 1:47 · ¡primera victoria de jev! |
+| Noche 5, valla | 0/10 | 1:22 | 1.1 | antes 0/5, 1:26, 0 rotas |
+
+- La curva de noches funciona igual con jev que con el bot programado: 80% → 60% → 30% → 0-10%.
+- Los lobos ya rompen las construcciones de jev (antes 0 en todas las pruebas).
+- Con 10 partidas hay mucho ruido: la misma prueba (noche 5 + torre) dio 1:54 y 1:13.
+- **jev sigue sin usar la torre** (0 veces en 30 partidas, máx 25% de probabilidad), tampoco con una descripción
+  que explica que subir al final gana la partida. La mecánica funciona: un bot obligado a usarla construye, sube
+  en 0,6 s y aguanta 20-55 s arriba. Es una limitación de jev, no del juego.
+- Las instrucciones de jev ahora incluyen la oscuridad (`night_darkness_percent`) y el tiempo de subida real.
+- `sim.ts` da error si se pide una pieza bloqueada en esa noche; las repeticiones se guardan como
+  `jev-n3-hedge-extras-mejor`, etc. (sin sufijos con la noche 5 por defecto).
 
 ### Pendiente de probar a mano
 - [ ] Que la curva de noches se sienta bien jugando (un jugador debería hacerlo mejor que el bot)

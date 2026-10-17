@@ -16,7 +16,7 @@ import { CONFIG } from '../src/config';
 import { JevBrain, ScriptedBrain, type Brain, type Decision } from '../src/bot/brains';
 import { ACTIONS, Pilot, type Action } from '../src/bot/Pilot';
 import { ReplayRecorder, type Replay } from '../src/replay/replay';
-import { LAST_NIGHT, NIGHTS } from '../src/sim/nights';
+import { LAST_NIGHT, NIGHTS, itemsForNight } from '../src/sim/nights';
 import { PIECES, type PieceId } from '../src/sim/pieces';
 import { scoreOf } from '../src/sim/score';
 import { World } from '../src/sim/World';
@@ -36,6 +36,9 @@ if (!PIECES.includes(piece)) throw new Error(`--piece debe ser ${PIECES.join('|'
 const extras = process.argv.includes('--extras');
 const night = Number(arg('night', String(LAST_NIGHT + 1))) - 1;
 if (!NIGHTS[night]) throw new Error(`--night debe ser 1-${NIGHTS.length}`);
+const nightItems = itemsForNight(night);
+if (!nightItems.includes(piece)) throw new Error(`--piece ${piece} está bloqueada en la noche ${night + 1}`);
+if (extras && !nightItems.includes('tower')) throw new Error(`--extras necesita la torre, bloqueada en la noche ${night + 1}`);
 // --set a.b=valor: cambiar balance sin tocar config.ts
 process.argv.forEach((a, k) => {
   if (a !== '--set') return;
@@ -196,8 +199,10 @@ async function main() {
     console.log(`Repetición: http://localhost:5173/?replay=${name}   (${fmt(r.time)}, semilla ${r.seed})`);
   };
   console.log('');
-  save(`${brainName}-peor`, sorted[0]);
-  save(`${brainName}-mejor`, sorted[sorted.length - 1]);
+  // con la noche por defecto y sin opciones, los nombres de siempre (jev-mejor, jev-hedge-peor...)
+  const tag = [brainName, night !== LAST_NIGHT && `n${night + 1}`, piece !== 'fence' && piece, extras && 'extras'].filter(Boolean).join('-');
+  save(`${tag}-peor`, sorted[0]);
+  save(`${tag}-mejor`, sorted[sorted.length - 1]);
 }
 
 main().catch((e) => {
