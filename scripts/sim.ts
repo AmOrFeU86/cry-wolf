@@ -114,7 +114,7 @@ async function playGame(seed: number): Promise<GameResult> {
     res.death = `${killer.phase}/${killer.mode}, cazando ${hunting}/${world.wolves.length}, acción ${decision.action}, estamina ${Math.round(s.stamina)}${s.exhausted ? ' (agotada)' : ''}, esquive ${s.dashCooldown > 0 ? 'en recarga' : 'listo'}`;
   }
   // tiempo sobrevivido desde que llegan los lobos
-  res.time = Math.max(0, Math.min(world.time - CONFIG.prepTime, CONFIG.survivalTime));
+  res.time = world.survived;
   res.won = world.state === 'won';
   res.score = scoreOf(world).total;
   res.closeCalls = world.stats.closeCalls;

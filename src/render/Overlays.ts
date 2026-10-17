@@ -189,13 +189,14 @@ export class Overlays {
     const grid = world.grid;
     const pos = cone.fan.geometry.attributes.position as THREE.BufferAttribute;
     pos.setXYZ(0, 0, 0, 0);
+    const range = world.sightRange; // de noche ven menos
     for (let k = 0; k <= RAYS; k++) {
       const a = w.heading - cw.fov + (2 * cw.fov * k) / RAYS;
       const dx = Math.sin(a);
       const dz = Math.cos(a);
       let d = 0;
-      while (d < cw.sightRange) {
-        const nd = Math.min(cw.sightRange, d + 0.3);
+      while (d < range) {
+        const nd = Math.min(range, d + 0.3);
         const [i, j] = grid.toCell(w.pos.x + dx * nd, w.pos.z + dz * nd);
         if (blocksSight(grid.get(i, j))) break;
         d = nd;

@@ -1,5 +1,4 @@
 import './style.css';
-import { CONFIG } from './config';
 import { InputController } from './client/InputController';
 import { Sfx, type VolumeKind } from './audio/Sfx';
 import { GameRenderer } from './render/GameRenderer';
@@ -147,7 +146,7 @@ function end(): void {
   mode = 'over';
   controls.enabled = false;
   controls.unlock();
-  const t = Math.max(0, Math.min(world.time - CONFIG.prepTime, CONFIG.survivalTime));
+  const t = world.survived;
   const prev = loadBest();
   const record = t > prev;
   if (record) saveBest(t);

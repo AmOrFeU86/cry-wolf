@@ -3,7 +3,6 @@
 // estrellas y luciérnagas como puntos, una luz puntual (el farolillo de la oveja) que siempre existe
 // (apagada de día) para no recompilar shaders. Sin post-procesado.
 import * as THREE from 'three';
-import { CONFIG } from '../config';
 import type { World } from '../sim/World';
 
 interface Keyframe {
@@ -61,7 +60,7 @@ const FORCED = (() => {
 /** Hora del día de la partida: 0 al empezar (mañana) → 1 al acabar (noche). */
 export function dayProgress(world: World): number {
   if (FORCED !== null) return FORCED;
-  return Math.min(1, world.time / (CONFIG.prepTime + CONFIG.survivalTime));
+  return world.dayProgress;
 }
 
 export function dayIcon(p: number): string {

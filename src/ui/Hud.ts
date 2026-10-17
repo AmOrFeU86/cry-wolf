@@ -40,7 +40,7 @@ export class Hud {
     const prep = world.preparing;
     const remaining = prep
       ? CONFIG.prepTime - world.time
-      : Math.max(0, CONFIG.prepTime + CONFIG.survivalTime - world.time);
+      : Math.max(0, CONFIG.prepTime + world.survivalTime - world.time);
     this.timer.textContent = formatTime(remaining);
     this.timer.classList.toggle('urgent', remaining <= 10);
     const icon = dayIcon(dayProgress(world));

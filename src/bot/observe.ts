@@ -55,7 +55,7 @@ export function observe(world: World, piece: PieceId = 'fence', extras = false) 
 
   const base = {
     seconds_until_wolves_arrive: Math.max(0, Math.ceil(CONFIG.prepTime - world.time)),
-    seconds_left: Math.ceil(CONFIG.prepTime + CONFIG.survivalTime - world.time),
+    seconds_left: Math.ceil(CONFIG.prepTime + world.survivalTime - world.time),
     wool: Math.floor(s.wool),
     build_cost: CONFIG.pieces[piece].cost,
     stamina_percent: Math.round((s.stamina / CONFIG.sheep.staminaMax) * 100),

@@ -1,9 +1,11 @@
 import { CONFIG } from '../config';
 import { Cell, Grid, isBuilt, type CellType, type Vec2 } from './Grid';
-import { findWolfPath } from './pathfinding';
+import { clamp, dist, wrapAngle } from './math';
+import { LAST_NIGHT, NIGHTS, itemsForNight, type Night } from './nights';
 import { PIECE_CELL, pieceOfCell, type ItemId, type PieceId } from './pieces';
 import { mulberry32 } from './rng';
-import { Sheep, Wolf, type Grass, type PlayerInput, type Scent } from './entities';
+import { Sheep, type Grass, type Wolf, type PlayerInput, type Scent } from './entities';
+import { WolfAI } from './WolfAI';
 
 export type GameState = 'playing' | 'won' | 'lost';
 
@@ -44,6 +46,7 @@ export interface BuildTarget {
   valid: boolean; // se puede colocar ahí la pieza elegida (o lanzar la piña)
   removable: PieceId | null; // hay una construcción que se puede desmontar
   poor: boolean; // falta lana para la pieza elegida
+  locked: boolean; // aún no se ha desbloqueado en esta noche
 }
 
 /** Puente colgante entre dos torres. */
@@ -58,14 +61,6 @@ interface Projectile {
   z: number;
   t: number; // segundos hasta caer
 }
-
-const wrapAngle = (a: number) => {
-  while (a > Math.PI) a -= 2 * Math.PI;
-  while (a < -Math.PI) a += 2 * Math.PI;
-  return a;
-};
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
 
 /**
  * Simulación completa del juego, sin nada de render.
@@ -95,6 +90,10 @@ export class World {
   private bridgeGridVersion = -1;
   /** Hazañas de la partida (para el resumen final y la experiencia). */
   readonly stats = { escapes: 0, closeCalls: 0, bitesAbsorbed: 0, lured: 0, built: 0, towerTime: 0 };
+  readonly night: Night;
+  /** Lo que se puede construir o lanzar en esta noche. */
+  readonly items: ItemId[];
+  private readonly wolfAI = new WolfAI(this);
   private spawnTimer = CONFIG.prepTime;
   private firstWave = true;
   private scentTimer = 0;
@@ -102,7 +101,13 @@ export class World {
   private noiseFx = 0;
   private lastNoiseR = 0;
 
-  constructor(readonly seed = (Math.random() * 2 ** 31) | 0) {
+  constructor(
+    readonly seed = (Math.random() * 2 ** 31) | 0,
+    /** Índice de la noche (0 = la primera). Por defecto la última: la dificultad completa. */
+    readonly nightIndex = LAST_NIGHT,
+  ) {
+    this.night = NIGHTS[nightIndex];
+    this.items = itemsForNight(nightIndex);
     this.rng = mulberry32(seed);
     this.generate();
   }
@@ -225,6 +230,36 @@ export class World {
     return this.time < CONFIG.prepTime;
   }
 
+  /** Segundos a sobrevivir desde que llegan los lobos. */
+  get survivalTime(): number {
+    return this.night.survivalTime;
+  }
+
+  /** Segundos sobrevividos desde que llegaron los lobos. */
+  get survived(): number {
+    return clamp(this.time - CONFIG.prepTime, 0, this.survivalTime);
+  }
+
+  /** Hora del día: 0 al empezar (mañana) → 1 al acabar (noche). */
+  get dayProgress(): number {
+    return Math.min(1, this.time / (CONFIG.prepTime + this.survivalTime));
+  }
+
+  /** 0 de día → 1 de noche cerrada (al final de la partida). */
+  get darkness(): number {
+    return clamp((this.dayProgress - 0.72) / 0.16, 0, 1);
+  }
+
+  /** Alcance de la vista de los lobos: de noche ven menos. */
+  get sightRange(): number {
+    return CONFIG.wolf.sightRange * (1 + (CONFIG.darkness.sight - 1) * this.darkness);
+  }
+
+  /** Alcance del olfato de los lobos: de noche huelen mejor. */
+  get smellRange(): number {
+    return CONFIG.wolf.smellRange * (1 + (CONFIG.darkness.smell - 1) * this.darkness);
+  }
+
   update(dt: number, input: PlayerInput): void {
     if (this.state !== 'playing') return;
     this.time += dt;
@@ -239,16 +274,15 @@ export class World {
     this.updateGrass(dt);
 
     this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0 && this.wolves.length < CONFIG.wolf.maxWolves) {
+    if (this.spawnTimer <= 0 && this.wolves.length < this.night.maxWolves) {
       const count = this.firstWave ? CONFIG.wolf.firstWolves : 1;
-      for (let k = 0; k < count; k++) this.spawnWolf();
+      for (let k = 0; k < count; k++) this.wolfAI.spawn();
       if (this.firstWave) this.events.push({ type: 'howl', x: 0, z: 0 });
       this.firstWave = false;
-      this.spawnTimer = CONFIG.wolf.spawnInterval;
+      this.spawnTimer = this.night.spawnInterval;
     }
 
-    for (const w of this.wolves) this.updateWolf(w, dt);
-    this.separateWolves();
+    this.wolfAI.update(dt);
 
     for (const w of this.wolves) {
       if (!this.sheep.tower && !this.sheep.crossing && dist(w.pos, this.sheep.pos) < CONFIG.wolf.catchDistance) {
@@ -258,7 +292,7 @@ export class World {
       }
     }
 
-    if (this.time >= CONFIG.prepTime + CONFIG.survivalTime) this.state = 'won';
+    if (this.time >= CONFIG.prepTime + this.survivalTime) this.state = 'won';
   }
 
   private updateSheep(dt: number, input: PlayerInput): void {
@@ -413,6 +447,12 @@ export class World {
     if (!input.buildMode) return;
     const s = this.sheep;
     const g = this.grid;
+    if (!this.items.includes(input.item)) {
+      const aim = this.aimPoint(input, CONFIG.buildRange, 1.5);
+      const [i, j] = g.toCell(aim.x, aim.z);
+      this.buildTarget = { i, j, x: aim.x, z: aim.z, item: input.item, valid: false, removable: null, poor: false, locked: true };
+      return;
+    }
     if (input.item === 'pinecone') {
       this.updateThrow(input);
       return;
@@ -435,7 +475,7 @@ export class World {
     const onIt = s.tower !== null && s.tower[0] === i && s.tower[1] === j; // no se desmonta la torre en la que estás
     const removable = isBuilt(cell) && !onIt ? pieceOfCell(cell) : null;
     const c = g.center(i, j);
-    this.buildTarget = { i, j, x: c.x, z: c.z, item: piece, valid, removable, poor };
+    this.buildTarget = { i, j, x: c.x, z: c.z, item: piece, valid, removable, poor, locked: false };
 
     if (input.place && valid) {
       g.set(i, j, PIECE_CELL[piece], CONFIG.pieces[piece].hp);
@@ -480,7 +520,7 @@ export class World {
     const [i, j] = this.grid.toCell(target.x, target.z);
     const poor = s.wool < p.cost;
     const valid = !poor && s.throwCooldown <= 0 && s.stun <= 0;
-    this.buildTarget = { i, j, x: target.x, z: target.z, item: 'pinecone', valid, removable: null, poor };
+    this.buildTarget = { i, j, x: target.x, z: target.z, item: 'pinecone', valid, removable: null, poor, locked: false };
     if (input.place && valid) {
       s.wool -= p.cost;
       s.throwCooldown = p.cooldown;
@@ -514,7 +554,7 @@ export class World {
     const len = from && target ? dist(g.center(...from), at) : Infinity;
     const poor = s.wool < p.cost;
     const valid = !!from && !!target && len <= p.range && !this.bridgeBetween(from, target) && !poor;
-    this.buildTarget = { i: target?.[0] ?? ai, j: target?.[1] ?? aj, x: at.x, z: at.z, item: 'bridge', valid, removable: null, poor };
+    this.buildTarget = { i: target?.[0] ?? ai, j: target?.[1] ?? aj, x: at.x, z: at.z, item: 'bridge', valid, removable: null, poor, locked: false };
     if (input.place && valid && from && target) {
       this.bridges.push({ a: from, b: target });
       this.bridgeVersion++;
@@ -669,28 +709,6 @@ export class World {
 
   // ---------------------------------------------------------------- lobos
 
-  private spawnWolf(): void {
-    const n = CONFIG.mapSize;
-    const g = this.grid;
-    const r = this.rng;
-    for (let t = 0; t < 200; t++) {
-      // en un vértice junto al borde con sitio para un lobo grande
-      const k = 2 + Math.floor(r() * (n - 3));
-      const side = Math.floor(r() * 4);
-      const i = side === 0 ? 2 : side === 1 ? n - 2 : k;
-      const j = side === 2 ? 2 : side === 3 ? n - 2 : k;
-      if (g.vertexCost(i, j, 0) !== 0) continue;
-      const c = g.vertex(i, j);
-      if (dist(c, this.sheep.pos) < 22 && t < 160) continue;
-      const w = new Wolf(c.x, c.z);
-      w.heading = Math.atan2(-c.x, -c.z); // mirando hacia el centro del mapa
-      w.repathTimer = r() * CONFIG.wolf.repathInterval;
-      this.wolves.push(w);
-      this.events.push({ type: 'wolfSpawn', x: c.x, z: c.z });
-      return;
-    }
-  }
-
   /** Deja huellas de olor al moverse; quieta, refresca la última. Público para las repeticiones. */
   updateScent(dt: number): void {
     const c = CONFIG.sheep;
@@ -738,322 +756,8 @@ export class World {
     }
   }
 
-  /** Vista del lobo: alcance, campo de visión y obstáculos. Gestiona cazar / perder de vista. */
-  private perceive(w: Wolf, dt: number): void {
-    const cw = CONFIG.wolf;
-    const s = this.sheep;
-    w.howlCooldown -= dt;
-    const d = dist(w.pos, s.pos);
-    const angle = Math.abs(wrapAngle(Math.atan2(s.pos.x - w.pos.x, s.pos.z - w.pos.z) - w.heading));
-    // si ya te persigue no hace falta que estés en su campo de visión: te está mirando
-    const inView = w.mode === 'hunt' || d < cw.closeSense || angle < cw.fov;
-    // subida a una torre se la ve desde más lejos y no la tapa nada
-    const high = s.tower !== null || s.crossing !== null;
-    w.sees = d < cw.sightRange * (high ? CONFIG.tower.sightBonus : 1) && inView && (high || this.grid.sightLine(w.pos, s.pos));
-
-    if (w.sees) {
-      w.lostTime = 0;
-      if (w.mode !== 'hunt') {
-        w.mode = 'hunt';
-        if (w.howlCooldown <= 0) {
-          // ¡Aullido! avisa a la manada
-          w.howlCooldown = 8;
-          this.events.push({ type: 'howl', x: w.pos.x, z: w.pos.z, r: cw.howlRange });
-          for (const o of this.wolves) {
-            if (o === w || o.mode === 'hunt' || dist(o.pos, w.pos) > cw.howlRange) continue;
-            o.mode = 'investigate';
-            o.modeTime = 12;
-            o.target = { x: s.pos.x, z: s.pos.z };
-          }
-        }
-      }
-      w.lastSeen = { x: s.pos.x, z: s.pos.z };
-      w.lastSeenVel = { x: s.vel.x, z: s.vel.z };
-    } else if (w.mode !== 'hunt' && w.mode !== 'track') {
-      // Olfato: si cruza tu rastro, lo sigue desde la huella más fresca a su alcance
-      let best: Scent | null = null;
-      for (const p of this.scent) {
-        // solo huellas más frescas que la última que siguió (si no, se queda oliendo el mismo rastro)
-        if (p.t > w.trackT && dist(p, w.pos) < cw.smellRange && this.scentStrength(p) > 0.1 && (!best || p.t > best.t)) best = p;
-      }
-      if (best) {
-        w.mode = 'track';
-        w.trackT = best.t;
-        w.target = { x: best.x, z: best.z };
-        this.events.push({ type: 'sniff', x: w.pos.x, z: w.pos.z });
-      }
-    } else if (w.mode === 'hunt' && w.lastSeen && (w.lostTime += dt) > cw.loseSightTime) {
-      // Te ha perdido: va a donde cree que has ido y busca por la zona
-      w.mode = 'search';
-      this.stats.escapes++;
-      this.events.push({ type: 'escape', x: w.pos.x, z: w.pos.z });
-      w.modeTime = cw.searchTime;
-      w.target = this.clampToMap({
-        x: w.lastSeen.x + w.lastSeenVel.x * cw.predict,
-        z: w.lastSeen.z + w.lastSeenVel.z * cw.predict,
-      });
-    }
-  }
-
-  private updateWolf(w: Wolf, dt: number): void {
-    const cw = CONFIG.wolf;
-    const s = this.sheep;
-
-    // mientras muerde una construcción no se le acaba la paciencia (buscar, seguir el rastro...)
-    const wasBiting = w.attacking !== null;
-    w.attacking = null;
-    w.repathTimer -= dt;
-    w.pounceCooldown -= dt;
-    if (!wasBiting) w.modeTime -= dt;
-    this.perceive(w, dt);
-    if (this.updatePounce(w, dt)) return;
-
-    let speed = cw.searchSpeed;
-    // el lobo grande no siempre puede llegar al punto exacto (ver goalReach)
-    const arrived = () => !w.target || dist(w.pos, w.target) < cw.goalReach + 0.3;
-    switch (w.mode) {
-      case 'hunt':
-        w.target = { x: s.pos.x, z: s.pos.z };
-        speed = cw.speed + cw.speedGrowth * Math.max(0, this.time - CONFIG.prepTime);
-        break;
-      case 'investigate':
-        if (arrived() || w.modeTime <= 0) {
-          w.mode = 'search';
-          w.modeTime = cw.searchTime * 0.6;
-          w.lastSeen = w.target;
-          w.target = null;
-        }
-        break;
-      case 'search':
-        if (w.modeTime <= 0) {
-          w.mode = 'wander';
-          w.target = null;
-        } else if (arrived()) {
-          w.target = this.randomPointNear(w.lastSeen ?? w.pos, 5);
-        }
-        break;
-      case 'track':
-        speed = cw.trackSpeed;
-        if (arrived()) {
-          // siguiente huella más fresca cerca; si no hay, ha perdido el rastro
-          let best: Scent | null = null;
-          for (const p of this.scent) {
-            if (p.t > w.trackT && dist(p, w.pos) < 4.5 && (!best || p.t > best.t)) best = p;
-          }
-          if (best) {
-            w.trackT = best.t;
-            w.target = { x: best.x, z: best.z };
-          } else {
-            w.mode = 'search';
-            w.modeTime = cw.searchTime * 0.6;
-            w.lastSeen = { x: w.pos.x, z: w.pos.z };
-            w.target = null;
-          }
-        }
-        break;
-      case 'wander':
-        speed = cw.wanderSpeed;
-        if (arrived() || w.modeTime <= 0) {
-          const towardSheep = this.rng() < cw.wanderTowardSheep;
-          w.target = this.randomPointNear(towardSheep ? s.pos : w.pos, towardSheep ? 12 : 14);
-          w.modeTime = 8;
-        }
-        break;
-    }
-    if (w.phase === 'recover') speed = cw.recoverSpeed;
-    // con una pista (te vio, te oyó, sigue tu rastro) rompe lo que le cierre el paso; merodeando, no
-    if (w.target) this.steerWolf(w, w.target, speed, w.mode === 'hunt', w.mode !== 'wander', dt);
-  }
-
-  /** Mueve al lobo hacia un punto: en línea recta si puede, si no con A*. breaks: rompe lo que le cierre el paso. */
-  private steerWolf(w: Wolf, target: Vec2, maxSpeed: number, hunting: boolean, breaks: boolean, dt: number): void {
-    const cw = CONFIG.wolf;
-    const g = this.grid;
-    let tx = target.x;
-    let tz = target.z;
-    let turnRate = hunting ? cw.turnRate : cw.pathTurnRate;
-
-    if (g.lineOfSight(w.pos, target, cw.radius * 0.9)) {
-      w.path = null;
-    } else {
-      if (!w.path || w.repathTimer <= 0) {
-        w.repathTimer = cw.repathInterval + this.rng() * 0.15;
-        // cazando, llegar a donde pueda morder; si no, basta con acercarse
-        const reach = hunting ? cw.catchDistance - 0.15 : cw.goalReach;
-        w.path = findWolfPath(g, g.nearestVertex(w.pos), target, reach, breaks ? cw.breakPenalty : 1000);
-        w.pathIdx = 1;
-        if (!w.path && !breaks) {
-          w.target = null; // destino inalcanzable: elegir otro
-          return;
-        }
-      }
-      if (w.path) {
-        turnRate = cw.pathTurnRate;
-        while (w.pathIdx < w.path.length) {
-          const v = g.vertex(...w.path[w.pathIdx]);
-          if (dist(w.pos, v) < 0.45) w.pathIdx++;
-          else break;
-        }
-        if (w.pathIdx < w.path.length) {
-          const [vi, vj] = w.path[w.pathIdx];
-          const v = g.vertex(vi, vj);
-          tx = v.x;
-          tz = v.z;
-          // ¿hay construcciones en el hueco por el que tiene que pasar? → romper la más cercana
-          const blocker = this.nearestBuiltAround(vi, vj, w.pos);
-          if (blocker && dist(w.pos, g.center(...blocker)) < cw.radius + 0.85) {
-            if (!breaks) {
-              w.target = null;
-              w.path = null;
-              return;
-            }
-            w.attacking = blocker;
-            const c = g.center(...blocker);
-            tx = c.x;
-            tz = c.z;
-          }
-        }
-      }
-    }
-
-    const desired = Math.atan2(tx - w.pos.x, tz - w.pos.z);
-    const diff = wrapAngle(desired - w.heading);
-
-    if (w.attacking) {
-      const [i, j] = w.attacking;
-      w.heading += clamp(diff, -turnRate * dt, turnRate * dt);
-      w.speed = 0;
-      w.biteTimer -= dt;
-      const c = g.center(i, j);
-      const piece = pieceOfCell(g.get(i, j)) ?? undefined;
-      if (g.damage(i, j, cw.biteDamage * dt)) {
-        this.events.push({ type: 'destroyed', x: c.x, z: c.z, piece });
-        w.path = null;
-      } else if (w.biteTimer <= 0) {
-        w.biteTimer = 0.45;
-        this.events.push({ type: 'bitten', x: c.x, z: c.z, piece });
-        this.stats.bitesAbsorbed++;
-      }
-      return;
-    }
-
-    w.heading = wrapAngle(w.heading + clamp(diff, -turnRate * dt, turnRate * dt));
-    const align = Math.max(0, Math.cos(diff));
-    const targetSpeed = maxSpeed * (0.35 + 0.65 * align);
-    w.speed += (targetSpeed - w.speed) * Math.min(1, dt * 4);
-    this.moveWolf(w, dt);
-  }
-
-  /** Construcción más cercana a p entre las 4 celdas que ocupa un lobo en el vértice (vi, vj). */
-  private nearestBuiltAround(vi: number, vj: number, p: Vec2): [number, number] | null {
-    const g = this.grid;
-    let best: [number, number] | null = null;
-    let bd = Infinity;
-    for (let j = vj - 1; j <= vj; j++) {
-      for (let i = vi - 1; i <= vi; i++) {
-        if (!isBuilt(g.get(i, j))) continue;
-        const d = dist(g.center(i, j), p);
-        if (d < bd) {
-          bd = d;
-          best = [i, j];
-        }
-      }
-    }
-    return best;
-  }
-
-  private randomPointNear(p: Vec2, radius: number): Vec2 {
-    const g = this.grid;
-    for (let t = 0; t < 20; t++) {
-      const a = this.rng() * Math.PI * 2;
-      const r = this.rng() * radius;
-      const q = this.clampToMap({ x: p.x + Math.cos(a) * r, z: p.z + Math.sin(a) * r });
-      const [i, j] = g.toCell(q.x, q.z);
-      if (g.get(i, j) === Cell.Empty) return g.center(i, j);
-    }
-    return { x: p.x, z: p.z };
-  }
-
-  private clampToMap(p: Vec2): Vec2 {
+  clampToMap(p: Vec2): Vec2 {
     const lim = this.grid.half - 1.5;
     return { x: clamp(p.x, -lim, lim), z: clamp(p.z, -lim, lim) };
-  }
-
-  /** Máquina de estados del salto. Devuelve true si controla el movimiento este frame. */
-  private updatePounce(w: Wolf, dt: number): boolean {
-    const cw = CONFIG.wolf;
-    const s = this.sheep;
-    w.phaseTime -= dt;
-    switch (w.phase) {
-      case 'chase': {
-        const d = dist(w.pos, s.pos);
-        if (w.sees && w.pounceCooldown <= 0 && d < cw.pounceRange && this.grid.lineOfSight(w.pos, s.pos, cw.radius * 0.9)) {
-          w.phase = 'windup';
-          w.phaseTime = cw.windupTime;
-          this.events.push({ type: 'windup', x: w.pos.x, z: w.pos.z });
-        }
-        return false;
-      }
-      case 'windup': {
-        // se agacha, frena y apunta (con giro limitado)
-        const desired = Math.atan2(s.pos.x - w.pos.x, s.pos.z - w.pos.z);
-        w.heading = wrapAngle(w.heading + clamp(wrapAngle(desired - w.heading), -cw.turnRate * dt, cw.turnRate * dt));
-        w.speed = Math.max(0, w.speed - 20 * dt);
-        this.moveWolf(w, dt);
-        if (w.phaseTime <= 0) {
-          w.phase = 'pounce';
-          w.phaseTime = cw.pounceTime;
-          w.speed = cw.pounceSpeed;
-        }
-        return true;
-      }
-      case 'pounce': {
-        // línea recta, sin girar
-        w.speed = cw.pounceSpeed;
-        const hit = this.moveWolf(w, dt);
-        if (w.phaseTime <= 0 || hit) {
-          // ¡por los pelos! el salto acaba muy cerca pero sin atraparla
-          const d = dist(w.pos, s.pos);
-          if (d > cw.catchDistance && d < cw.catchDistance + 1.2 && !s.tower) {
-            this.stats.closeCalls++;
-            this.events.push({ type: 'closeCall', x: s.pos.x, z: s.pos.z });
-          }
-          w.phase = 'recover';
-          w.phaseTime = cw.recoverTime;
-          w.pounceCooldown = cw.pounceCooldown;
-        }
-        return true;
-      }
-      case 'recover':
-        if (w.phaseTime <= 0) w.phase = 'chase';
-        return false;
-    }
-  }
-
-  private moveWolf(w: Wolf, dt: number): boolean {
-    w.pos.x += Math.sin(w.heading) * w.speed * dt;
-    w.pos.z += Math.cos(w.heading) * w.speed * dt;
-    return this.grid.collideCircle(w.pos, CONFIG.wolf.radius);
-  }
-
-  private separateWolves(): void {
-    const r = CONFIG.wolf.radius * 2;
-    for (let a = 0; a < this.wolves.length; a++) {
-      for (let b = a + 1; b < this.wolves.length; b++) {
-        const p = this.wolves[a].pos;
-        const q = this.wolves[b].pos;
-        const dx = q.x - p.x;
-        const dz = q.z - p.z;
-        const d = Math.hypot(dx, dz);
-        if (d > 1e-4 && d < r) {
-          const push = (r - d) / d / 2;
-          p.x -= dx * push;
-          p.z -= dz * push;
-          q.x += dx * push;
-          q.z += dz * push;
-        }
-      }
-    }
-    for (const w of this.wolves) this.grid.collideCircle(w.pos, CONFIG.wolf.radius);
   }
 }

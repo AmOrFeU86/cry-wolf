@@ -1,4 +1,3 @@
-import { CONFIG } from '../config';
 import type { World } from './World';
 
 export interface ScoreLine {
@@ -10,7 +9,7 @@ export interface ScoreLine {
 /** Puntos de la partida: tiempo sobrevivido y hazañas. Base para la experiencia entre partidas. */
 export function scoreOf(world: World): { lines: ScoreLine[]; total: number } {
   const st = world.stats;
-  const survived = Math.floor(Math.max(0, Math.min(world.time - CONFIG.prepTime, CONFIG.survivalTime)));
+  const survived = Math.floor(world.survived);
   const lines: ScoreLine[] = [
     { label: '⏱ Segundos sobrevividos', count: survived, points: survived },
     { label: '💨 Lobos despistados', count: st.escapes, points: st.escapes * 15 },
