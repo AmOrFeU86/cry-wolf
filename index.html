@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>¡Que viene el lobo!</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐑</text></svg>" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="vignette"></div>
+      <div id="threats"></div>
+      <div id="callout"></div>
+      <div id="top-left">
+        <div class="pill" title="Lana">🧶 <span id="wool">0</span></div>
+        <div class="pill" title="Lobos">🐺 <span id="wolves">0</span></div>
+      </div>
+      <div id="timer">3:00</div>
+      <div id="daytime" title="Hora del día">🌄</div>
+      <div id="phase"></div>
+      <div id="mode" class="hidden">🔨 Apunta con la cámara · Click: construir (mantén para hacer fila) · Click dcho: desmontar · Rueda / 1-7: pieza · B salir</div>
+      <div id="crosshair" class="hidden"></div>
+      <div id="hotbar" class="hidden"></div>
+      <div id="hint"></div>
+      <div id="bottom">
+        <div id="stamina"><div id="stamina-fill"></div></div>
+        <div id="dash" class="ready">Esquive listo</div>
+      </div>
+      <div id="replay-bar" class="hidden"></div>
+      <div id="help">WASD mover · Shift correr · Espacio esquivar · E comer · B construir · Ratón cámara · M sonido · Esc pausa</div>
+    </div>
+
+    <div id="menu" class="screen">
+      <div class="card">
+        <div class="emoji">🐑 🐺</div>
+        <h1>¡Que viene el lobo!</h1>
+        <p>Eres una oveja y los lobos te buscan. <b>Sobrevive 3 minutos.</b></p>
+        <p>Tienes unos segundos para prepararte: come hierba, consigue lana y construye vallas.
+          Los lobos no saben dónde estás: <b>esconderte tras los árboles</b> y no hacer ruido (correr, construir) es tu mejor arma.</p>
+        <p>Las vallas frenan pero se ve a través; <b>setos, muros y puertas tapan la vista</b>. Por las puertas pasas tú, los lobos no.
+          Sube a una <b>torre</b> (E) para ponerte a salvo… mientras aguante. Une torres con <b>puentes</b> y lanza <b>piñas</b> para despistar.</p>
+        <ul class="controls">
+          <li><kbd>WASD</kbd> moverse</li>
+          <li><kbd>Shift</kbd> correr</li>
+          <li><kbd>Espacio</kbd> esquive</li>
+          <li><kbd>E</kbd> comer · subir</li>
+          <li><kbd>B</kbd> / <kbd>1-7</kbd> construir</li>
+          <li><kbd>Click</kbd> colocar · <kbd>Dcho</kbd> quitar</li>
+        </ul>
+        <button id="play">Jugar</button>
+        <div class="volume">
+          <label>🎵 Música <input type="range" min="0" max="100" data-vol="music" /></label>
+          <label>🔊 Sonidos <input type="range" min="0" max="100" data-vol="sfx" /></label>
+        </div>
+        <p id="best"></p>
+      </div>
+    </div>
+
+    <div id="pause" class="screen hidden">
+      <div class="card">
+        <h2>Pausa</h2>
+        <button id="resume">Continuar</button>
+        <div class="volume">
+          <label>🎵 Música <input type="range" min="0" max="100" data-vol="music" /></label>
+          <label>🔊 Sonidos <input type="range" min="0" max="100" data-vol="sfx" /></label>
+        </div>
+      </div>
+    </div>
+
+    <div id="end" class="screen hidden">
+      <div class="card">
+        <h2 id="end-title"></h2>
+        <p id="end-text"></p>
+        <div id="end-score"></div>
+        <button id="again">Jugar otra vez</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

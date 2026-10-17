@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Animaciones · oveja y lobo</title>
+    <style>
+      body { margin: 0; overflow: hidden; font: 13px system-ui, sans-serif; }
+      #ui { position: fixed; top: 8px; left: 8px; background: #fffd; padding: 8px 10px; border-radius: 8px; display: grid; gap: 6px; }
+      #ui label { display: flex; gap: 6px; align-items: center; }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <label>Velocidad oveja <input id="ss" type="range" min="0" max="17" step="0.1" value="0" /> <span id="ssv"></span></label>
+      <label>Velocidad lobo <input id="ws" type="range" min="0" max="12" step="0.1" value="0" /> <span id="wsv"></span></label>
+      <label>Pose lobo <select id="pose"><option>chase</option><option>windup</option><option>pounce</option><option>recover</option></select></label>
+      <label>Modo lobo <select id="mode"><option>wander</option><option>hunt</option><option>track</option></select></label>
+      <label><input id="eat" type="checkbox" /> comiendo</label>
+      <label><input id="stun" type="checkbox" /> aturdida</label>
+      <label><input id="tired" type="checkbox" /> agotada</label>
+      <label><input id="bite" type="checkbox" /> lobo mordiendo</label>
+      <label><input id="circle" type="checkbox" /> correr en círculo</label>
+      <label>Cámara lenta <input id="slow" type="range" min="0.05" max="1" step="0.05" value="1" /></label>
+    </div>
+    <script type="module" src="/src/animPreview.ts"></script>
+  </body>
+</html>
