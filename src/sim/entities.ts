@@ -43,6 +43,12 @@ export class Sheep {
   name = '';
   /** Atrapada por un lobo: ya no juega (en solitario la partida acaba). */
   caught = false;
+  /** Modo niño (ver CONFIG.kid): lobos más blandos con ella y vidas extra. */
+  kid = false;
+  /** Veces que aún puede volver al centro si la atrapan (modo niño). */
+  lives = 0;
+  /** Segundos que le quedan de estar a salvo tras volver: no la ven ni la atrapan. */
+  safe = 0;
   pos: Vec2 = { x: 0.5, z: 0.5 };
   vel: Vec2 = { x: 0, z: 0 };
   facing = 0; // ángulo; dirección = (sin, cos)

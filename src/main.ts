@@ -53,6 +53,7 @@ const screens = {
 const BEST_KEY = 'wolfsheep.best';
 const BEST_SCORE_KEY = 'wolfsheep.bestScore';
 const NIGHT_KEY = 'wolfsheep.night'; // última noche desbloqueada (índice)
+const KID_KEY = 'wolfsheep.kid'; // modo niño (ver CONFIG.kid): '1' activado
 const SLOWMO_SCALE = 0.3;
 const SLOWMO_TIME = 0.5; // segundos reales
 
@@ -63,6 +64,8 @@ let replay: ReplayPlayer | null = null;
 /** Partida multijugador (null en solitario). */
 let net: NetClient | null = null;
 let slowmo = 0;
+/** Modo niño elegido en el menú (se aplica a mi oveja en la próxima partida). */
+let kidMode = loadText(KID_KEY) === '1';
 /** Récord de tiempo de cada noche (el de la última noche es el récord de siempre). */
 const bestKey = (night: number) => (night === LAST_NIGHT ? BEST_KEY : `${BEST_KEY}.${night + 1}`);
 const unlockedNight = () => Math.min(LAST_NIGHT, loadBest(NIGHT_KEY));
@@ -129,7 +132,13 @@ function callout(text: string, cls: string, sub = ''): void {
 /** Momentos épicos: mirar los eventos del frame (antes de que el render los consuma). */
 function epicMoments(): void {
   for (const e of world.events) {
-    if (e.type === 'caught' && net && world.flock.length > 1) {
+    if (e.type === 'rescue') {
+      const s = world.flock.find((o) => o.id === e.id);
+      if (!s) continue;
+      const lives = s.lives > 0 ? `Te quedan ${'❤️'.repeat(s.lives)}` : 'Es tu última oportunidad: ¡cuidado!';
+      if (s === world.sheep) callout('¡Uf, a salvo!', 'escape', lives);
+      else callout(`¡${s.name || 'Una oveja'} se ha salvado!`, 'escape');
+    } else if (e.type === 'caught' && net && world.flock.length > 1) {
       // multijugador: avisar de quién ha caído (si caen todas, ya lo dice la pantalla final)
       if (world.alive.length === 0) continue;
       const mine = e.id === net.id;
@@ -184,14 +193,21 @@ function toMenu(): void {
   showScreen('menu');
 }
 
-function start(night = selectedNight): void {
-  selectedNight = night;
-  world = new World(undefined, night);
-  renderer.setWorld(world);
+/** Prepara los controles para una partida nueva (con o sin modo niño). */
+function resetControls(): void {
+  controls.kid = kidMode;
   controls.reset();
   controls.items = world.items;
   controls.yaw = 0;
-  controls.pitch = 0.55;
+  // modo niño: cámara fija algo más alta para ver mejor alrededor
+  controls.pitch = kidMode ? 0.85 : 0.55;
+}
+
+function start(night = selectedNight): void {
+  selectedNight = night;
+  world = new World(undefined, night, [{ id: 0, name: '', kid: kidMode }]);
+  renderer.setWorld(world);
+  resetControls();
   mode = 'playing';
   controls.enabled = true;
   showScreen(null);
@@ -261,9 +277,16 @@ function end(): void {
   }, 900);
 }
 
-/** Final de una partida multijugador: sin récords ni desbloqueos, vuelta a la sala. */
+/** Final de una partida multijugador: sin récords; si ganáis, se desbloquea la siguiente noche y el anfitrión puede empezarla. */
 function endOnline(): void {
   const won = world.state === 'won';
+  const night = world.nightIndex;
+  const hasNext = won && night < LAST_NIGHT;
+  if (hasNext && night + 1 > unlockedNight()) saveBest(night + 1, NIGHT_KEY);
+  if (hasNext) onlineNight = night + 1;
+  const next = document.getElementById('next')!;
+  next.classList.toggle('hidden', !hasNext || !net?.isHost);
+  next.textContent = `Noche ${night + 2} ▶`;
   const alive = world.alive.map((s) => s.name).join(', ');
   document.getElementById('end-title')!.textContent = won ? `¡Habéis sobrevivido a la noche ${world.nightIndex + 1}!` : '¡Os han cazado a todas!';
   document.getElementById('end-text')!.innerHTML = `Tiempo: ${formatTime(world.survived)}` + (won ? `<br>🐑 Llegan al amanecer: ${alive}` : '');
@@ -368,7 +391,7 @@ function joinOnline(): void {
   saveText(ROOM_KEY, room);
   onlineError('Conectando…');
   leaveOnline();
-  const client = new NetClient(name, room, {
+  const client = new NetClient(name, room, kidMode, {
     room: (_players, _host, playing) => {
       if (net !== client) return;
       onlineError('');
@@ -379,10 +402,7 @@ function joinOnline(): void {
       if (net !== client) return;
       world = w;
       renderer.setWorld(world);
-      controls.reset();
-      controls.items = world.items;
-      controls.yaw = 0;
-      controls.pitch = 0.55;
+      resetControls();
       mode = 'playing';
       controls.enabled = true;
       setEndButtons();
@@ -428,14 +448,14 @@ function updateFlockHud(): void {
   const show = !!net && mode !== 'menu';
   el.classList.toggle('hidden', !show);
   if (!show) return;
-  const key = world.flock.map((s) => `${s.id}:${s.name}:${s.caught}`).join('|');
+  const key = world.flock.map((s) => `${s.id}:${s.name}:${s.caught}:${s.lives}`).join('|');
   if (key === flockKey) return;
   flockKey = key;
   el.innerHTML = '';
   for (const s of world.flock) {
     const d = document.createElement('div');
     d.className = `pill${s.caught ? ' caught' : ''}`;
-    d.textContent = `${s.caught ? '💀' : '🐑'} ${s.name}${s.id === net!.id ? ' (tú)' : ''}`;
+    d.textContent = `${s.caught ? '💀' : '🐑'} ${s.name}${s.id === net!.id ? ' (tú)' : ''}${s.kid && !s.caught ? ` ${'❤️'.repeat(s.lives)}` : ''}`;
     el.appendChild(d);
   }
 }
@@ -445,7 +465,11 @@ document.getElementById('play')!.addEventListener('click', () => {
   start();
 });
 document.getElementById('again')!.addEventListener('click', () => start(world.nightIndex));
-document.getElementById('next')!.addEventListener('click', () => start(world.nightIndex + 1));
+document.getElementById('next')!.addEventListener('click', () => {
+  // multijugador: el anfitrión empieza la siguiente noche para todos
+  if (net) net.start(world.nightIndex + 1);
+  else start(world.nightIndex + 1);
+});
 document.getElementById('to-menu')!.addEventListener('click', () => {
   leaveOnline();
   setEndButtons();
@@ -480,6 +504,18 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// modo niño: las casillas del menú y de jugar con amigos van sincronizadas
+const kidInputs = [...document.querySelectorAll<HTMLInputElement>('input[data-kid]')];
+for (const input of kidInputs) {
+  input.checked = kidMode;
+  input.addEventListener('change', () => {
+    kidMode = input.checked;
+    saveText(KID_KEY, kidMode ? '1' : '');
+    for (const other of kidInputs) other.checked = kidMode;
+    input.blur(); // que las teclas vuelvan al juego
+  });
+}
+
 renderNights();
 updateBestLabel();
 
@@ -497,7 +533,7 @@ function frame(now: number): void {
     // multijugador: la simulación está en el servidor; aquí solo se envían órdenes y se coloca lo recibido
     if (mode === 'playing') {
       controls.update(dt);
-      controls.aimAt = controls.buildMode ? renderer.aimPoint() : null;
+      controls.aimAt = controls.buildMode && !controls.kid ? renderer.aimPoint() : null;
       const input = controls.getInput();
       const me = net.me;
       if (me && !me.caught) {
@@ -511,7 +547,7 @@ function frame(now: number): void {
     if (mode !== 'over' && world.state !== 'playing') end();
   } else if (mode === 'playing') {
     controls.update(dt);
-    controls.aimAt = controls.buildMode ? renderer.aimPoint() : null;
+    controls.aimAt = controls.buildMode && !controls.kid ? renderer.aimPoint() : null;
     slowmo = Math.max(0, slowmo - dt);
     world.update(slowmo > 0 ? dt * SLOWMO_SCALE : dt, controls.getInput());
     if (world.state !== 'playing') end();
@@ -528,7 +564,7 @@ function frame(now: number): void {
   renderer.render(world, mode === 'paused' ? 0 : dt, controls.yaw, controls.pitch);
   threats.update(world, renderer.camera, dt, mode === 'playing' || mode === 'replay');
   touch.update(world, mode === 'playing' || mode === 'replay');
-  hud.update(world, mode === 'replay' ? false : controls.buildMode, mode === 'replay' ? null : ITEMS[controls.item], isTouchMode());
+  hud.update(world, mode === 'replay' ? false : controls.buildMode, mode === 'replay' ? null : ITEMS[controls.item], isTouchMode(), controls.kid);
   if (replay) {
     const r = replay.replay;
     const bar = document.getElementById('replay-bar')!;

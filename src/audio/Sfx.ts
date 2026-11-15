@@ -268,6 +268,10 @@ export class Sfx {
       case 'sniff':
         if (!this.play('sniff', at, { vol: 0.5, range: 20 })) this.sniff(at);
         break;
+      case 'rescue':
+        this.play('bleat', at, { vol: 0.8, range: 60, rate: 1.2 });
+        if (!this.play('whoosh', null, { vol: 0.4, rate: 0.8 })) this.whoosh(at, 0.3, 600, 2400);
+        break;
       case 'caught':
         // multijugador: han cazado a otra oveja (solo se oye su balido, donde esté)
         if (e.id !== undefined && e.id !== world.sheep.id) {

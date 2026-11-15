@@ -20,6 +20,9 @@ export class Hud {
   private phase = $('phase');
   private crosshair = $('crosshair');
   private hotbar = $('hotbar');
+  private lives = $('lives');
+  private help = $('help');
+  private helpText = this.help.textContent ?? '';
   private slots: HTMLElement[];
 
   constructor() {
@@ -37,12 +40,12 @@ export class Hud {
     this.hud.classList.toggle('hidden', !visible);
   }
 
-  /** item: lo elegido en la barra; null para ocultar la barra (repeticiones). */
-  update(world: World, buildMode: boolean, item: ItemId | null = null, touch = false): void {
-    // los avisos nombran la tecla o, en modo táctil, el botón de la pantalla
+  /** item: lo elegido en la barra; null para ocultar la barra (repeticiones). touch: botones en pantalla; kid: controles del modo niño. */
+  update(world: World, buildMode: boolean, item: ItemId | null = null, touch = false, kid = false): void {
+    // los avisos nombran la tecla o, en modo táctil, el botón de la pantalla (en modo niño no se usa el ratón)
     const k = touch
       ? { place: '➕ Poner', remove: '✖ Quitar', act: '🌿', climb: '🗼 Subir', jump: '💨 Saltar: bajar' }
-      : { place: 'Click', remove: 'Click derecho', act: 'E', climb: 'E', jump: 'Espacio: saltar abajo' };
+      : { place: kid ? 'F' : 'Click', remove: kid ? 'X' : 'Click derecho', act: 'E', climb: 'E', jump: 'Espacio: saltar abajo' };
     const prep = world.preparing;
     const remaining = prep
       ? CONFIG.prepTime - world.time
@@ -82,8 +85,9 @@ export class Hud {
     this.staminaFill.classList.toggle('exhausted', s.exhausted);
     this.dash.textContent = s.dashCooldown > 0 ? `Esquive ${s.dashCooldown.toFixed(1)}s` : 'Esquive listo';
     this.dash.classList.toggle('ready', s.dashCooldown <= 0);
-    this.mode.classList.toggle('hidden', !buildMode);
-    this.crosshair.classList.toggle('hidden', !buildMode || item === null);
+    // modo niño: siempre construyendo delante de la oveja, sin mira
+    this.mode.classList.toggle('hidden', !buildMode || kid);
+    this.crosshair.classList.toggle('hidden', !buildMode || item === null || kid);
     this.hotbar.classList.toggle('hidden', !buildMode || item === null);
     ITEMS.forEach((id, k) => {
       this.slots[k].classList.toggle('selected', id === item);
@@ -91,10 +95,22 @@ export class Hud {
       this.slots[k].classList.toggle('locked', !world.items.includes(id));
     });
 
+    this.lives.classList.toggle('hidden', !s.kid);
+    if (s.kid) {
+      const hearts = '❤️'.repeat(s.lives) + '🤍'.repeat(Math.max(0, CONFIG.kid.lives - s.lives));
+      if (this.lives.textContent !== hearts) this.lives.textContent = hearts;
+    }
+    const help = kid
+      ? 'Flechas mover · Shift correr · Espacio esquivar · F construir · Q cambiar pieza · X quitar · E subir · Esc pausa'
+      : this.helpText;
+    if (item !== null && this.help.textContent !== help) this.help.textContent = help;
+
     const bt = world.buildTarget;
     let hint = '';
     const towerHp = s.tower ? world.grid.hp[s.tower[1] * world.grid.n + s.tower[0]] / CONFIG.pieces.tower.hp : 0;
-    if (s.crossing) {
+    if (s.safe > 0) {
+      hint = '✨ ¡A salvo! Los lobos no te ven un momento';
+    } else if (s.crossing) {
       hint = '🌉 Cruzando el puente... (date la vuelta para volver)';
     } else if (buildMode && bt?.locked) {
       hint = `🔒 ${itemInfo(bt.item).name}: se desbloquea al llegar a la noche ${unlockNight(bt.item) + 1}`;
@@ -105,7 +121,9 @@ export class Hud {
           ? `Necesitas ${CONFIG.bridge.cost} de lana`
           : bt.valid
             ? `${k.place}: tender el puente hasta esa torre`
-            : `Apunta a otra torre a menos de ${CONFIG.bridge.range} m`;
+            : kid
+              ? `Mira hacia otra torre a menos de ${CONFIG.bridge.range} m`
+              : `Apunta a otra torre a menos de ${CONFIG.bridge.range} m`;
     } else if (s.tower) {
       const biting = world.wolves.some((w) => w.attacking?.[0] === s.tower![0] && w.attacking[1] === s.tower![1]);
       const bridge = world.bridges.some((b) => (b.a[0] === s.tower![0] && b.a[1] === s.tower![1]) || (b.b[0] === s.tower![0] && b.b[1] === s.tower![1]));
@@ -114,7 +132,7 @@ export class Hud {
       hint = '💫 ¡Has caído!';
     } else if (s.climb > 0) {
       hint = 'Subiendo...';
-    } else if (world.nearTower && !buildMode) {
+    } else if (world.nearTower && (!buildMode || kid)) {
       hint = `Mantén ${k.climb} para subir a la torre`;
     } else if (buildMode && bt?.item === 'pinecone' && !bt.poor) {
       hint = s.throwCooldown > 0 ? `Piña lista en ${s.throwCooldown.toFixed(1)}s` : `${k.place}: lanzar piña (hace ruido donde cae y atrae a los lobos)`;
@@ -122,9 +140,9 @@ export class Hud {
       const p = CONFIG.pieces[bt.removable];
       hint = `${k.remove}: desmontar ${p.name.toLowerCase()} (recuperas lana)`;
     } else if (buildMode && bt?.poor) {
-      hint = `Necesitas ${itemInfo(bt.item).cost} de lana: come hierba (${k.act})`;
+      hint = `Necesitas ${itemInfo(bt.item).cost} de lana: come hierba${kid ? '' : ` (${k.act})`}`;
     } else if (world.nearGrass && !s.eating) {
-      hint = `Mantén ${k.act} para comer hierba`;
+      hint = kid ? 'Quédate quieta para comer hierba' : `Mantén ${k.act} para comer hierba`;
     } else if (s.eating) {
       hint = 'Ñam ñam...';
     }

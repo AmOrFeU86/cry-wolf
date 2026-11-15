@@ -11,6 +11,12 @@ import type { Snapshot } from './snapshot';
 const DELAY = 0.1;
 /** Cada cuánto se envían las órdenes (s). */
 const SEND_INTERVAL = 1 / 30;
+/** Cada cuánto se confirma al servidor la última foto recibida (s). */
+const ACK_INTERVAL = 0.1;
+/** La hora del servidor se calcula con la foto que llegó antes en los últimos segundos (s). */
+const OFFSET_WINDOW = 3;
+/** Si las fotos empiezan a llegar más tarde, se retrasa el reloj poco a poco (s por s). */
+const OFFSET_SLEW = 0.1;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const lerpAngle = (a: number, b: number, t: number) => {
@@ -44,14 +50,19 @@ export class NetClient {
   private snaps: Snapshot[] = [];
   /** Hora del servidor menos la hora local (se ajusta con cada foto). */
   private offset: number | null = null;
+  /** Diferencia de hora de cada foto reciente: [hora local, diferencia]. */
+  private offsets: [number, number][] = [];
+  private lastSnapAt = 0;
+  private lastAck = 0;
+  private acked = -1;
   private wolves = new Map<number, Wolf>();
   private pending: PlayerInput | null = null;
   private sendTimer = 0;
   private closedByUs = false;
 
-  constructor(name: string, room: string, private on: NetHandlers) {
+  constructor(name: string, room: string, kid: boolean, private on: NetHandlers) {
     this.ws = new WebSocket(serverUrl());
-    this.ws.addEventListener('open', () => this.send({ t: 'join', v: NET_VERSION, name, room }));
+    this.ws.addEventListener('open', () => this.send({ t: 'join', v: NET_VERSION, name, room, kid }));
     this.ws.addEventListener('message', (e) => this.onMessage(JSON.parse(String(e.data)) as ServerMsg));
     this.ws.addEventListener('close', () => {
       if (!this.closedByUs) this.on.closed();
@@ -115,6 +126,7 @@ export class NetClient {
         this.world.focus = this.id;
         this.snaps = [];
         this.offset = null;
+        this.offsets = [];
         this.wolves.clear();
         this.on.start(this.world);
         break;
@@ -132,9 +144,14 @@ export class NetClient {
     const w = this.world;
     if (!w) return;
     const now = performance.now() / 1000;
-    const off = snap.t - now;
-    // la foto que llega antes marca la hora; se deja derivar un poco por si el reloj se adelanta
-    this.offset = this.offset === null || off > this.offset || this.snaps.length === 0 ? off : this.offset;
+    // la foto que llegó antes en los últimos segundos marca la hora. Si llega antes, se adelanta
+    // el reloj de golpe; si las fotos se retrasan (un proxy que las acumula), se atrasa poco a poco
+    this.offsets.push([now, snap.t - now]);
+    while (this.offsets[0][0] < now - OFFSET_WINDOW) this.offsets.shift();
+    const best = Math.max(...this.offsets.map((o) => o[1]));
+    if (this.offset === null || best > this.offset || this.snaps.length === 0) this.offset = best;
+    else this.offset = Math.max(best, this.offset - OFFSET_SLEW * (now - this.lastSnapAt));
+    this.lastSnapAt = now;
     this.snaps.push(snap);
     while (this.snaps.length > 2 && this.snaps[1].t < snap.t - 1) this.snaps.shift();
 
@@ -164,7 +181,9 @@ export class NetClient {
 
     // ovejas que entran o salen
     for (const row of snap.s) {
-      if (!w.flock.some((s) => s.id === row[0])) w.addSheep(row[0], this.players.find((p) => p.id === row[0])?.name ?? '');
+      if (w.flock.some((s) => s.id === row[0])) continue;
+      const p = this.players.find((q) => q.id === row[0]);
+      w.addSheep(row[0], p?.name ?? '', p?.kid);
     }
     for (const s of [...w.flock]) if (!snap.s.some((row) => row[0] === s.id)) w.removeSheep(s.id);
     for (const row of snap.s) {
@@ -182,6 +201,8 @@ export class NetClient {
       s.climb = row[16];
       s.tower = row[17] >= 0 ? cellOf(row[17]) : null;
       s.crossing = row[18] >= 0 ? { from: cellOf(row[18]), to: cellOf(row[19]), t: row[20] } : null;
+      s.lives = row[21];
+      s.safe = row[22];
     }
     // si me han cazado, la cámara sigue a una compañera que siga viva
     const me = this.me;
@@ -193,8 +214,15 @@ export class NetClient {
   update(dt: number): void {
     const w = this.world;
     if (!w || this.offset === null || this.snaps.length === 0) return;
-    const now = performance.now() / 1000 + this.offset;
     const last = this.snaps[this.snaps.length - 1];
+    // confirmar la última foto (siempre la más nueva, aunque lleguen varias de golpe)
+    const local = performance.now() / 1000;
+    if (last.t !== this.acked && local - this.lastAck >= ACK_INTERVAL) {
+      this.lastAck = local;
+      this.acked = last.t;
+      this.send({ t: 'ack', s: last.t });
+    }
+    const now = local + this.offset;
     const renderT = Math.min(now - DELAY, last.t);
     let a = this.snaps[0];
     let b = a;

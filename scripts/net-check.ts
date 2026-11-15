@@ -64,6 +64,8 @@ class Bot {
       if (m.t === 'start') this.started = true;
       if (m.t === 'snap') {
         this.snap = m.s;
+        // protocolo v3: confirmar lo recibido o el servidor deja de mandar fotos
+        this.ws.send(JSON.stringify({ t: 'ack', s: m.s.t }));
         this.events.push(...m.s.ev.map((e) => e.type));
       }
     });

@@ -693,3 +693,27 @@ button.secondary {
   opacity: 0.55;
   text-decoration: line-through;
 }
+
+.kid-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 12px 0 4px;
+  font-size: 16px;
+  color: var(--wood-dark);
+  cursor: pointer;
+}
+
+.kid-toggle input {
+  width: 20px;
+  height: 20px;
+  accent-color: #82bf5a;
+  cursor: pointer;
+}
+
+p.small {
+  font-size: 13px;
+  margin: 2px 0 8px;
+  opacity: 0.8;
+}

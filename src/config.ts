@@ -109,6 +109,18 @@ export const CONFIG = {
     { survivalTime: 180, maxWolves: 5, spawnInterval: 35, speedGrowth: 0.006, unlock: [] },
   ],
 
+  // Modo niño: solo cambia la oveja que lo elige (en multijugador los demás juegan igual)
+  kid: {
+    lives: 3, // si la atrapan, vuelve al centro del prado en vez de quedar fuera
+    safeTime: 3, // segundos tras volver en los que los lobos no la ven ni la atrapan
+    startWool: 15,
+    eatRate: 4, // lana por segundo
+    staminaDrain: 0.4, // multiplicador: puede correr mucho más rato
+    wolfSpeed: 4.4, // lobo cazándola: más lento que la oveja andando (y no acelera con la noche)
+    windupTime: 0.9, // el lobo tarda más en saltar: da tiempo a ver el aviso y apartarse
+    sight: 0.7, // multiplicador del alcance al que la ven los lobos
+  },
+
   // Al final de cada partida anochece: los lobos ven menos pero huelen mejor
   darkness: {
     sight: 0.6, // multiplicador del alcance de la vista con noche cerrada

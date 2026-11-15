@@ -4,7 +4,7 @@ import type { PlayerInput } from '../sim/entities';
 import type { Snapshot } from './snapshot';
 
 /** Cambia si el formato de los mensajes deja de ser compatible (cliente y servidor deben coincidir). */
-export const NET_VERSION = 1;
+export const NET_VERSION = 3;
 /** Ruta del WebSocket en el servidor (en desarrollo, Vite la redirige al servidor). */
 export const WS_PATH = '/ws';
 export const MAX_NAME = 16;
@@ -14,13 +14,17 @@ export const MAX_PLAYERS = 8;
 export interface PlayerInfo {
   id: number;
   name: string;
+  /** Modo niño: solo cambia su oveja (ver CONFIG.kid). */
+  kid?: boolean;
 }
 
 export type ClientMsg =
-  | { t: 'join'; v: number; name: string; room: string }
+  | { t: 'join'; v: number; name: string; room: string; kid?: boolean }
   /** Solo el anfitrión: empezar la partida en esa noche (índice). */
   | { t: 'start'; night: number }
-  | { t: 'input'; i: PlayerInput };
+  | { t: 'input'; i: PlayerInput }
+  /** Hora de la última foto recibida: el servidor no manda más si el jugador va muy atrasado. */
+  | { t: 'ack'; s: number };
 
 export type ServerMsg =
   | { t: 'welcome'; id: number; room: string }

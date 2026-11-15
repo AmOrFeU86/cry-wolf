@@ -20,10 +20,19 @@ import { SnapshotEncoder } from '../src/net/snapshot';
 const PORT = Number(process.env.PORT ?? 8080);
 const DIST = resolve(process.env.DIST ?? 'dist');
 const DT = 1 / 30; // paso de la simulación (el mismo que usan los bots) y ritmo de envío
+/** Si un jugador tiene más de esto en fotos enviadas sin confirmar (s), no se le mandan más hasta que se ponga al día. */
+const MAX_LAG = 0.5;
 
 interface Player extends PlayerInfo {
   ws: WebSocket;
   input: PlayerInput;
+  /** Hora de la última foto que se le ha enviado y de la última que ha confirmado. */
+  sent: number;
+  ack: number;
+  /** Sucesos de fotos que se ha saltado (van en la siguiente que reciba). */
+  missed: GameEvent[];
+  /** Se ha saltado alguna foto: la siguiente lleva todas las construcciones. */
+  full: boolean;
 }
 
 let nextId = 1;
@@ -36,8 +45,6 @@ class Room {
   playing = false;
   private encoder = new SnapshotEncoder();
   private events: GameEvent[] = [];
-  /** Alguien ha entrado: la próxima foto lleva todas las construcciones. */
-  private full = false;
 
   constructor(readonly name: string) {}
 
@@ -47,9 +54,10 @@ class Room {
     send(p.ws, { t: 'welcome', id: p.id, room: this.name });
     // partida en marcha: entra como una oveja más
     if (this.playing && this.world) {
-      this.world.addSheep(p.id, p.name);
+      this.world.addSheep(p.id, p.name, p.kid);
       send(p.ws, { t: 'start', seed: this.world.seed, night: this.world.nightIndex, players: this.list() });
-      this.full = true;
+      p.sent = p.ack = this.world.time;
+      p.full = true;
     }
     this.broadcastRoom();
   }
@@ -69,9 +77,8 @@ class Room {
     const players = this.list();
     this.world = new World(undefined, n, players);
     this.events = [];
-    this.full = true;
     this.playing = true;
-    for (const p of this.players.values()) p.input = emptyInput();
+    for (const p of this.players.values()) Object.assign(p, { input: emptyInput(), sent: 0, ack: 0, missed: [], full: true });
     this.broadcast({ t: 'start', seed: this.world.seed, night: n, players });
     this.broadcastRoom();
   }
@@ -88,9 +95,22 @@ class Room {
     w.update(DT, inputs);
     this.events.push(...w.events);
     w.events.length = 0;
-    const snap = this.encoder.encode(w, this.events.splice(0), this.full);
-    this.full = false;
-    this.broadcast({ t: 'snap', s: snap });
+    const snap = this.encoder.encode(w, this.events.splice(0), false);
+    for (const p of this.players.values()) {
+      if (p.ws.readyState !== p.ws.OPEN) continue;
+      // conexión atascada (p. ej. un proxy que acumula): no amontonar fotos que llegarían viejas
+      if (p.sent - p.ack > MAX_LAG) {
+        p.missed.push(...snap.ev);
+        if (p.missed.length > 200) p.missed.splice(0, p.missed.length - 200);
+        p.full = true;
+        continue;
+      }
+      const s = p.missed.length || p.full ? { ...snap, ev: [...p.missed, ...snap.ev], f: p.full ? this.encoder.builds : snap.f } : snap;
+      p.ws.send(JSON.stringify({ t: 'snap', s } satisfies ServerMsg));
+      p.sent = snap.t;
+      p.missed = [];
+      p.full = false;
+    }
     if (w.state !== 'playing') {
       this.playing = false;
       this.broadcastRoom();
@@ -98,7 +118,7 @@ class Room {
   }
 
   private list(): PlayerInfo[] {
-    return [...this.players.values()].map((p) => ({ id: p.id, name: p.name }));
+    return [...this.players.values()].map((p) => ({ id: p.id, name: p.name, kid: p.kid }));
   }
 
   broadcastRoom(): void {
@@ -202,12 +222,13 @@ wss.on('connection', (ws) => {
       }
       rooms.set(roomName, room);
       const id = nextId++;
-      player = { id, name: cleanName(msg.name, MAX_NAME) || `Oveja ${id}`, ws, input: emptyInput() };
+      player = { id, name: cleanName(msg.name, MAX_NAME) || `Oveja ${id}`, kid: msg.kid === true, ws, input: emptyInput(), sent: 0, ack: 0, missed: [], full: true };
       room.join(player);
       console.log(`+ ${player.name} (#${id}) en "${roomName}" · ${room.players.size} jugadores`);
       return;
     }
     if (msg.t === 'input') player.input = readInput(msg.i, player.input);
+    else if (msg.t === 'ack') player.ack = num(msg.s);
     else if (msg.t === 'start') room!.start(player.id, msg.night);
   });
 

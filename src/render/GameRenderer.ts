@@ -459,10 +459,12 @@ export class GameRenderer {
       const y = o === s ? sheepY : this.sheepY(world, o);
       m.root.position.set(o.pos.x, y, o.pos.z);
       m.root.rotation.y = o.facing;
-      m.root.visible = !o.caught && world.state !== 'lost';
+      // parpadea mientras está a salvo tras volver al centro (modo niño)
+      const blink = o.safe > 0 && Math.floor(this.time * 8) % 2 === 0;
+      m.root.visible = !o.caught && world.state !== 'lost' && !blink;
       m.update(dt, { speed: o.speed, eating: o.eating, stunned: o.stun > 0, tired: o.exhausted });
       // nombre encima de las demás ovejas
-      const showLabel = o !== s && o.name !== '' && m.root.visible;
+      const showLabel = o !== s && o.name !== '' && !o.caught && world.state !== 'lost';
       if (entry.label && (entry.name !== o.name || !showLabel)) {
         this.level.remove(entry.label);
         entry.label.material.map?.dispose();
@@ -748,6 +750,15 @@ export class GameRenderer {
           this.vfx.dustRing(e.x, e.z, 16, 3.5);
           this.shake = 0.6;
           break;
+        case 'rescue': {
+          // una nube de lana donde la atrapan y otra donde vuelve a aparecer
+          this.vfx.burst(e.x, 0.8, e.z, 0xf4f0e6, 30, 4);
+          this.vfx.dustRing(e.x, e.z, 12, 2.5);
+          const back = world.flock.find((o) => o.id === e.id);
+          if (back) this.vfx.burst(back.pos.x, 0.6, back.pos.z, 0xfff3a8, 24, 3);
+          this.shake = Math.max(this.shake, 0.3);
+          break;
+        }
         case 'closeCall':
           this.vfx.burst(e.x, 0.8, e.z, 0xf4f0e6, 8, 2.5);
           this.shake = Math.max(this.shake, 0.15);
