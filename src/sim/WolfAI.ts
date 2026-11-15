@@ -47,13 +47,15 @@ export class WolfAI {
   private canSee(w: Wolf, s: Sheep): boolean {
     const world = this.world;
     const cw = CONFIG.wolf;
+    if (s.safe > 0) return false; // acaba de volver al centro (modo niño)
     const d = dist(w.pos, s.pos);
     const angle = Math.abs(wrapAngle(Math.atan2(s.pos.x - w.pos.x, s.pos.z - w.pos.z) - w.heading));
     // si ya te persigue no hace falta que estés en su campo de visión: te está mirando
     const inView = (w.mode === 'hunt' && w.prey === s.id) || d < cw.closeSense || angle < cw.fov;
     // subida a una torre se la ve desde más lejos y no la tapa nada
     const high = s.tower !== null || s.crossing !== null;
-    return d < world.sightRange * (high ? CONFIG.tower.sightBonus : 1) && inView && (high || world.grid.sightLine(w.pos, s.pos));
+    const range = world.sightRange * (high ? CONFIG.tower.sightBonus : 1) * (s.kid ? CONFIG.kid.sight : 1);
+    return d < range && inView && (high || world.grid.sightLine(w.pos, s.pos));
   }
 
   /** Vista del lobo: elige a quién caza (su presa si la sigue viendo; si no, la más cercana que vea). */
@@ -151,7 +153,7 @@ export class WolfAI {
     switch (w.mode) {
       case 'hunt':
         if (s) w.target = { x: s.pos.x, z: s.pos.z };
-        speed = cw.speed + world.night.speedGrowth * world.survived;
+        speed = s?.kid ? CONFIG.kid.wolfSpeed : cw.speed + world.night.speedGrowth * world.survived;
         break;
       case 'investigate':
         if (arrived() || w.modeTime <= 0) {
@@ -327,7 +329,7 @@ export class WolfAI {
         const d = dist(w.pos, s.pos);
         if (w.sees && w.pounceCooldown <= 0 && d < cw.pounceRange && world.grid.lineOfSight(w.pos, s.pos, cw.radius * 0.9)) {
           w.phase = 'windup';
-          w.phaseTime = cw.windupTime;
+          w.phaseTime = s.kid ? CONFIG.kid.windupTime : cw.windupTime;
           world.events.push({ type: 'windup', x: w.pos.x, z: w.pos.z });
         }
         return false;

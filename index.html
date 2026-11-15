@@ -20,6 +20,7 @@
         <div class="pill" title="Lana">🧶 <span id="wool">0</span></div>
         <div class="pill" title="Lobos">🐺 <span id="wolves">0</span></div>
         <div class="pill" title="Noche">🌙 Noche <span id="night">1</span></div>
+        <div class="pill hidden" id="lives" title="Vidas (modo niño)"></div>
       </div>
       <div id="flock" class="hidden"></div>
       <div id="timer">3:00</div>
@@ -56,6 +57,7 @@
           <li><kbd>Click</kbd> colocar · <kbd>Dcho</kbd> quitar</li>
         </ul>
         <div id="nights"></div>
+        <label class="kid-toggle"><input type="checkbox" data-kid /> 🧒 <b>Modo niño</b>: sin ratón, lobos más lentos y 3 vidas</label>
         <div class="buttons">
           <button id="play">Jugar</button>
           <button id="online-open" class="secondary">👥 Con amigos</button>
@@ -75,6 +77,8 @@
           <p>Entrad todos en la <b>misma sala</b>. Si cazan a una oveja, las demás siguen: ¡ganáis si alguna llega al final de la noche!</p>
           <label class="field">Tu nombre <input id="online-name" maxlength="16" placeholder="Oveja" /></label>
           <label class="field">Sala <input id="online-room" maxlength="24" placeholder="principal" /></label>
+          <label class="kid-toggle"><input type="checkbox" data-kid /> 🧒 <b>Modo niño</b>: sin ratón, lobos más lentos y 3 vidas</label>
+          <p class="small">El modo niño solo cambia tu oveja: los demás juegan igual.</p>
           <div class="buttons">
             <button id="online-join">Entrar</button>
             <button id="online-back" class="secondary">Volver</button>

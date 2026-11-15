@@ -6,7 +6,8 @@ import { MODES, PHASES } from '../replay/replay';
 
 /**
  * sheep: [id, x, z, facing, vx, vz, eating, wool, stamina, elevation, stun, exhausted, caught,
- *         dashTimer, dashCooldown, throwCooldown, climb, torre (celda o -1), puente desde (celda o -1), puente hasta, puente t]
+ *         dashTimer, dashCooldown, throwCooldown, climb, torre (celda o -1), puente desde (celda o -1), puente hasta, puente t,
+ *         vidas, a salvo]
  */
 export type SheepSnap = number[];
 /** wolf: [id, x, z, heading, speed, attacking (celda o -1), fase, modo, te ve, presa (id de oveja o -1)] */
@@ -31,6 +32,8 @@ const r3 = (v: number) => Math.round(v * 1000) / 1000;
 /** Lo usa el servidor: recuerda qué construcciones mandó la última vez para no repetirlas. */
 export class SnapshotEncoder {
   private lastBuilds = '';
+  /** Las construcciones de la última foto (para quien se haya saltado fotos). */
+  builds: [number, number, number][] = [];
 
   /** full: mandar las construcciones aunque no hayan cambiado (alguien acaba de entrar). */
   encode(world: World, events: GameEvent[], full: boolean): Snapshot {
@@ -41,6 +44,7 @@ export class SnapshotEncoder {
       if (isBuilt(c)) f.push([k, Math.round(g.hp[k]), c]);
     });
     const key = JSON.stringify(f);
+    this.builds = f;
     const snap: Snapshot = {
       t: r3(world.time),
       st: world.state,
@@ -48,6 +52,7 @@ export class SnapshotEncoder {
         s.id, r2(s.pos.x), r2(s.pos.z), r2(s.facing), r2(s.vel.x), r2(s.vel.z), s.eating ? 1 : 0, r2(s.wool), Math.round(s.stamina),
         r2(s.elevation), r2(s.stun), s.exhausted ? 1 : 0, s.caught ? 1 : 0, r2(s.dashTimer), r2(s.dashCooldown), r2(s.throwCooldown),
         r2(s.climb), cell(s.tower), cell(s.crossing?.from ?? null), cell(s.crossing?.to ?? null), r2(s.crossing?.t ?? 0),
+        s.lives, r2(s.safe),
       ]),
       w: world.wolves.map((w) => [
         w.id, r2(w.pos.x), r2(w.pos.z), r2(w.heading), r2(w.speed), cell(w.attacking), PHASES.indexOf(w.phase), MODES.indexOf(w.mode), w.sees ? 1 : 0, w.prey ?? -1,

@@ -30,6 +30,7 @@ export type GameEventType =
   | 'windup' // un lobo se agacha para saltar
   | 'wolfSpawn'
   | 'caught'
+  | 'rescue' // modo niño: la atrapan pero le quedan vidas y vuelve al centro
   | 'dash'
   | 'howl'
   | 'noise'
@@ -67,6 +68,7 @@ export interface Bridge {
 export interface PlayerSlot {
   id: number;
   name: string;
+  kid?: boolean;
 }
 
 /** Piña en el aire. */
@@ -122,7 +124,7 @@ export class World {
     this.items = itemsForNight(nightIndex);
     this.rng = mulberry32(seed);
     this.generate();
-    for (const p of players) this.addSheep(p.id, p.name);
+    for (const p of players) this.addSheep(p.id, p.name, p.kid);
     this.focus = players[0]?.id ?? 0;
   }
 
@@ -149,27 +151,34 @@ export class World {
   }
 
   /** Mete una oveja en el prado: la primera en el centro, las demás alrededor en el primer hueco libre. */
-  addSheep(id: number, name = ''): Sheep {
+  addSheep(id: number, name = '', kid = false): Sheep {
     const s = new Sheep();
     s.id = id;
     s.name = name;
-    const k = this.flock.length;
-    if (k > 0) {
-      const g = this.grid;
-      // en corro alrededor del centro; si está ocupado (construcciones), cada vez más lejos
-      for (let r = 1.4; r < 20; r += 0.7) {
-        const a = k * 2.4 + r;
-        const p = { x: 0.5 + Math.sin(a) * r, z: 0.5 + Math.cos(a) * r };
-        const [i, j] = g.toCell(p.x, p.z);
-        if (g.get(i, j) !== Cell.Empty) continue;
-        const q = { ...p };
-        if (g.collideCircle(q, CONFIG.sheep.radius, true)) continue;
-        s.pos = p;
-        break;
-      }
+    s.kid = kid;
+    if (kid) {
+      s.lives = CONFIG.kid.lives;
+      s.wool = CONFIG.kid.startWool;
     }
+    const k = this.flock.length;
+    if (k > 0) s.pos = this.freeSpot(k, 1.4);
     this.flock.push(s);
     return s;
+  }
+
+  /** Hueco libre en corro alrededor del centro; si está ocupado (construcciones), cada vez más lejos. */
+  private freeSpot(k: number, from: number): Vec2 {
+    const g = this.grid;
+    for (let r = from; r < 20; r += 0.7) {
+      const a = k * 2.4 + r;
+      const p = { x: 0.5 + Math.sin(a) * r, z: 0.5 + Math.cos(a) * r };
+      const [i, j] = g.toCell(p.x, p.z);
+      if (g.get(i, j) !== Cell.Empty) continue;
+      const q = { ...p };
+      if (g.collideCircle(q, CONFIG.sheep.radius, true)) continue;
+      return p;
+    }
+    return { ...START };
   }
 
   removeSheep(id: number): void {
@@ -363,8 +372,12 @@ export class World {
     this.wolfAI.update(dt);
 
     for (const s of this.flock) {
-      if (s.caught || s.tower || s.crossing) continue;
+      if (s.caught || s.tower || s.crossing || s.safe > 0) continue;
       if (!this.wolves.some((w) => dist(w.pos, s.pos) < CONFIG.wolf.catchDistance)) continue;
+      if (s.lives > 0) {
+        this.rescue(s);
+        continue;
+      }
       s.caught = true;
       s.eating = false;
       s.buildTarget = null;
@@ -379,8 +392,32 @@ export class World {
     if (this.time >= CONFIG.prepTime + this.survivalTime) this.state = 'won';
   }
 
+  /** Modo niño: en vez de quedar fuera, gasta una vida y vuelve al centro a salvo un momento. */
+  private rescue(s: Sheep): void {
+    this.events.push({ type: 'rescue', x: s.pos.x, z: s.pos.z, id: s.id });
+    s.lives--;
+    s.safe = CONFIG.kid.safeTime;
+    s.pos = this.freeSpot(this.flock.indexOf(s), 0);
+    s.vel.x = s.vel.z = 0;
+    s.dashTimer = 0;
+    s.climb = 0;
+    s.eating = false;
+    s.stamina = CONFIG.sheep.staminaMax;
+    s.exhausted = false;
+    s.lastScent = null;
+    // los lobos que la cazaban la pierden de vista
+    for (const w of this.wolves) {
+      if (w.prey !== s.id) continue;
+      w.prey = null;
+      w.mode = 'wander';
+      w.target = null;
+      w.path = null;
+    }
+  }
+
   private updateSheep(s: Sheep, dt: number, input: PlayerInput): void {
     const c = CONFIG.sheep;
+    s.safe = Math.max(0, s.safe - dt);
 
     let mx = input.moveX;
     let mz = input.moveZ;
@@ -463,7 +500,7 @@ export class World {
     } else {
       const sprinting = input.sprint && moving && !s.exhausted && s.stamina > 0;
       if (sprinting) {
-        s.stamina = Math.max(0, s.stamina - c.staminaDrain * dt);
+        s.stamina = Math.max(0, s.stamina - c.staminaDrain * (s.kid ? CONFIG.kid.staminaDrain : 1) * dt);
         if (s.stamina <= 0) s.exhausted = true;
       } else {
         s.stamina = Math.min(c.staminaMax, s.stamina + c.staminaRegen * dt);
@@ -510,7 +547,7 @@ export class World {
     s.eating = input.eat && !moving && s.dashTimer <= 0 && s.climb === 0 && !s.tower && s.nearGrass !== null;
     if (s.eating && s.nearGrass) {
       const gr = s.nearGrass;
-      const amt = Math.min(c.eatRate * dt, gr.amount);
+      const amt = Math.min((s.kid ? CONFIG.kid.eatRate : c.eatRate) * dt, gr.amount);
       gr.amount -= amt;
       s.wool += amt;
       if (gr.amount <= 0) gr.regrow = CONFIG.grass.regrowTime;
