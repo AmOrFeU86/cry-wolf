@@ -6,8 +6,12 @@
  */
 type Listener = (touch: boolean) => void;
 
-let active = false;
 const listeners: Listener[] = [];
+// Primera suposición antes de que nadie toque nada: un aparato solo táctil (móvil, tableta) empieza
+// en modo táctil para que el menú ya enseñe los controles con el dedo. Luego mandan los eventos.
+let active =
+  typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+document.body.classList.toggle('touch', active);
 
 function set(v: boolean): void {
   if (v === active) return;
