@@ -1,5 +1,8 @@
 import './style.css';
+import './touch.css';
 import { InputController } from './client/InputController';
+import { TouchControls } from './client/TouchControls';
+import { isTouchMode } from './client/touchMode';
 import { Sfx, type VolumeKind } from './audio/Sfx';
 import { GameRenderer } from './render/GameRenderer';
 import { LAST_NIGHT, NIGHTS, itemsForNight } from './sim/nights';
@@ -22,6 +25,24 @@ const controls = new InputController(canvas);
 const hud = new Hud();
 const sfx = new Sfx();
 const threats = new Threats();
+const touch = new TouchControls(controls, () => pause());
+
+/** Al entrar a jugar: con ratón se captura el puntero; con el dedo, pantalla completa (si el navegador deja). */
+function grabInput(): void {
+  if (!isTouchMode()) {
+    controls.lock();
+    return;
+  }
+  const el = document.documentElement;
+  if (document.fullscreenElement || !el.requestFullscreen) return;
+  el.requestFullscreen({ navigationUI: 'hide' })
+    .then(() => {
+      // en el móvil se juega mejor apaisado; si no se puede bloquear, da igual
+      const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+      o?.lock?.('landscape').catch(() => {});
+    })
+    .catch(() => {});
+}
 
 const screens = {
   menu: document.getElementById('menu')!,
@@ -176,7 +197,7 @@ function start(night = selectedNight): void {
   showScreen(null);
   hud.show(true);
   sfx.start();
-  controls.lock();
+  grabInput();
 }
 
 function pause(): void {
@@ -193,7 +214,7 @@ function resume(): void {
   mode = 'playing';
   controls.enabled = true;
   showScreen(null);
-  controls.lock();
+  grabInput();
 }
 
 function end(): void {
@@ -368,7 +389,7 @@ function joinOnline(): void {
       showScreen(null);
       hud.show(true);
       sfx.start();
-      controls.lock();
+      grabInput();
     },
     error: (msg) => {
       if (net !== client) return;
@@ -432,7 +453,11 @@ document.getElementById('to-menu')!.addEventListener('click', () => {
 });
 document.getElementById('resume')!.addEventListener('click', resume);
 document.addEventListener('pointerlockchange', () => {
-  if (!controls.locked && mode === 'playing') pause();
+  if (!controls.locked && mode === 'playing' && !isTouchMode()) pause();
+});
+// cambiar de aplicación en el móvil (o de pestaña): pausa
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && mode === 'playing') pause();
 });
 // volumen de música y sonidos (menú y pausa): los deslizadores del mismo tipo van sincronizados
 const volumeInputs = [...document.querySelectorAll<HTMLInputElement>('input[data-vol]')];
@@ -502,7 +527,8 @@ function frame(now: number): void {
   if (mode === 'playing' || mode === 'replay' || mode === 'over') sfx.update(world, dt, controls.yaw, mode !== 'over');
   renderer.render(world, mode === 'paused' ? 0 : dt, controls.yaw, controls.pitch);
   threats.update(world, renderer.camera, dt, mode === 'playing' || mode === 'replay');
-  hud.update(world, mode === 'replay' ? false : controls.buildMode, mode === 'replay' ? null : ITEMS[controls.item]);
+  touch.update(world, mode === 'playing' || mode === 'replay');
+  hud.update(world, mode === 'replay' ? false : controls.buildMode, mode === 'replay' ? null : ITEMS[controls.item], isTouchMode());
   if (replay) {
     const r = replay.replay;
     const bar = document.getElementById('replay-bar')!;

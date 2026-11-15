@@ -11,12 +11,24 @@ body {
   font-family: 'Fredoka', 'Trebuchet MS', system-ui, sans-serif;
   color: #fff;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
 }
 
 #game {
   display: block;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
+  touch-action: none;
+}
+
+/* Textos solo para ratón y teclado o solo para el dedo (ver touchMode.ts) */
+body.touch .desktop-only,
+body:not(.touch) .touch-only {
+  display: none !important;
 }
 
 .hidden {
@@ -376,8 +388,10 @@ body {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* la tarjeta se centra con margin:auto: si no cabe (móvil apaisado) se desplaza sin cortarse por arriba */
+  overflow-y: auto;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
   background: radial-gradient(ellipse at center, rgba(255, 230, 190, 0.15), rgba(90, 55, 25, 0.4));
 }
 
@@ -387,6 +401,7 @@ body {
   border-radius: 26px;
   padding: 28px 36px;
   max-width: 470px;
+  margin: auto;
   text-align: center;
   border: 3px solid var(--edge);
   /* costura de punto (lana) por dentro del borde */
@@ -449,6 +464,7 @@ button {
   border-radius: 999px;
   padding: 10px 40px;
   cursor: pointer;
+  touch-action: manipulation;
   transition: transform 0.1s, background 0.15s;
 }
 

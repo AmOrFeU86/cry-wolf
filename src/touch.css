@@ -1,0 +1,410 @@
+/* ---------------- Móvil y controles táctiles ---------------- */
+
+.field input {
+  min-width: 0;
+  font-size: 16px; /* con menos de 16px el iPhone hace zoom al escribir */
+}
+
+/* Pantallas pequeñas (o bajas, como un móvil apaisado): menús más compactos */
+@media (max-width: 560px), (max-height: 560px) {
+  .card {
+    padding: 16px 18px;
+    border-radius: 20px;
+    font-size: 14px;
+    outline-offset: -8px;
+  }
+
+  .card h1 {
+    font-size: 26px;
+    margin-bottom: 6px;
+  }
+
+  .card h2 {
+    margin-bottom: 6px;
+  }
+
+  .card p {
+    margin: 6px 0;
+  }
+
+  .emoji {
+    font-size: 30px;
+  }
+
+  .controls {
+    font-size: 13px;
+    margin: 8px 0;
+  }
+
+  button {
+    font-size: 18px;
+    padding: 8px 28px;
+  }
+
+  .buttons button {
+    padding: 8px 20px;
+  }
+
+  .volume {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin-top: 10px;
+  }
+
+  .volume input[type='range'] {
+    width: 90px;
+  }
+
+  .field input {
+    width: auto;
+    flex: 1;
+  }
+}
+
+/* En apaisado y bajito, la tarjeta aprovecha el ancho */
+@media (max-height: 500px) and (orientation: landscape) {
+  .card {
+    max-width: min(640px, 100%);
+  }
+}
+
+/* Capa táctil: joystick, cámara y botones. Va detrás de los textos del HUD, que dejan pasar el dedo */
+#touch {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  touch-action: none;
+  text-shadow: none;
+}
+
+body.touch #touch:not(.off) {
+  display: block;
+}
+
+.stick-base {
+  position: absolute;
+  left: calc(env(safe-area-inset-left) + 100px);
+  top: calc(100% - env(safe-area-inset-bottom) - 100px);
+  width: 112px;
+  height: 112px;
+  margin: -56px 0 0 -56px;
+  border-radius: 50%;
+  background: rgba(255, 248, 232, 0.18);
+  border: 3px solid rgba(255, 248, 232, 0.7);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* más allá de este anillo, la oveja corre */
+.stick-base::before {
+  content: '';
+  position: absolute;
+  inset: -28px;
+  border-radius: 50%;
+  border: 2px dashed rgba(255, 248, 232, 0.45);
+}
+
+.stick-base.active {
+  opacity: 1;
+}
+
+.stick-base.sprint::before {
+  border-color: #ffb347;
+  border-style: solid;
+}
+
+.stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  margin: -27px 0 0 -27px;
+  border-radius: 50%;
+  background: var(--cream-solid);
+  border: 2px solid var(--edge);
+  box-shadow: 0 3px 0 rgba(138, 90, 48, 0.35);
+}
+
+.stick-base.sprint .stick-knob {
+  background: #ffd38a;
+}
+
+#touch-pad {
+  position: absolute;
+  right: calc(env(safe-area-inset-right) + 14px);
+  bottom: calc(env(safe-area-inset-bottom) + 14px);
+  width: 250px;
+  height: 250px;
+  pointer-events: none;
+  transform-origin: bottom right;
+}
+
+.tbtn {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 66px;
+  height: 66px;
+  border-radius: 50%;
+  background: rgba(255, 248, 232, 0.82);
+  color: var(--wood-dark);
+  border: 2px solid var(--edge);
+  box-shadow: 0 4px 0 rgba(138, 90, 48, 0.4);
+  font-weight: 600;
+  pointer-events: auto;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.tbtn .icon {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.tbtn .label {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.tbtn.pressed {
+  transform: translateY(3px) scale(0.94);
+  box-shadow: 0 1px 0 rgba(138, 90, 48, 0.4);
+  background: #ffe7b0;
+}
+
+.tbtn.dim {
+  opacity: 0.55;
+}
+
+.tbtn.on {
+  background: #f2b84b;
+  border-color: #c98a24;
+  color: #fff;
+}
+
+.tbtn[data-act='dash'] {
+  right: 0;
+  bottom: 0;
+  width: 86px;
+  height: 86px;
+}
+
+.tbtn[data-act='dash'] .icon {
+  font-size: 34px;
+}
+
+/* recarga del esquive: un sector que se vacía */
+.tbtn[data-act='dash']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(rgba(90, 61, 34, 0.4) calc(var(--cd, 0) * 360deg), transparent 0);
+}
+
+.tbtn[data-act='action'] {
+  right: 98px;
+  bottom: 4px;
+}
+
+.tbtn[data-act='build'] {
+  right: 10px;
+  bottom: 98px;
+}
+
+.tbtn[data-act='place'] {
+  right: 94px;
+  bottom: 88px;
+  width: 80px;
+  height: 80px;
+  background: rgba(196, 232, 160, 0.9);
+  border-color: #8fc06a;
+}
+
+.tbtn[data-act='place'] .icon {
+  font-size: 30px;
+}
+
+.tbtn[data-act='remove'] {
+  right: 10px;
+  bottom: 176px;
+  width: 58px;
+  height: 58px;
+  background: rgba(250, 200, 185, 0.9);
+  border-color: #e09a88;
+}
+
+#touch:not(.building) .tbtn[data-act='place'],
+#touch:not(.building) .tbtn[data-act='remove'],
+#touch.spectator #touch-pad {
+  display: none;
+}
+
+.tbtn[data-act='pause'] {
+  top: calc(env(safe-area-inset-top) + 8px);
+  right: calc(env(safe-area-inset-right) + 8px);
+  width: 44px;
+  height: 44px;
+}
+
+.tbtn[data-act='pause'] .icon {
+  font-size: 20px;
+}
+
+/* HUD en modo táctil: más pequeño y apartado de los pulgares */
+body.touch #help,
+body.touch #dash,
+body.touch .slot .key {
+  display: none;
+}
+
+body.touch #hotbar .slot {
+  pointer-events: auto;
+  touch-action: none;
+}
+
+body.touch #top-left {
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: calc(env(safe-area-inset-left) + 8px);
+  gap: 6px;
+}
+
+body.touch .pill {
+  font-size: 15px;
+  padding: 2px 10px;
+}
+
+body.touch #flock {
+  top: calc(env(safe-area-inset-top) + 40px);
+  left: calc(env(safe-area-inset-left) + 8px);
+}
+
+body.touch #flock .pill {
+  font-size: 12px;
+}
+
+body.touch #timer {
+  top: calc(env(safe-area-inset-top) + 4px);
+  font-size: 30px;
+}
+
+body.touch #daytime {
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: calc(50% + 48px);
+  font-size: 20px;
+}
+
+body.touch #phase {
+  top: calc(env(safe-area-inset-top) + 44px);
+  font-size: 13px;
+}
+
+body.touch #bottom {
+  top: calc(env(safe-area-inset-top) + 70px);
+  bottom: auto;
+}
+
+body.touch #stamina {
+  width: 140px;
+  height: 10px;
+}
+
+body.touch #mode {
+  top: calc(env(safe-area-inset-top) + 86px);
+  font-size: 12px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+body.touch #hint {
+  bottom: calc(env(safe-area-inset-bottom) + 92px);
+  width: max-content;
+  max-width: 54vw;
+  font-size: 14px;
+  text-align: center;
+}
+
+body.touch #callout {
+  font-size: 28px;
+}
+
+body.touch #callout.night small {
+  font-size: 15px;
+}
+
+body.touch #replay-bar {
+  top: calc(env(safe-area-inset-top) + 86px);
+  font-size: 12px;
+}
+
+body.touch #hotbar {
+  bottom: calc(env(safe-area-inset-bottom) + 10px);
+  gap: 5px;
+}
+
+body.touch .slot {
+  width: 52px;
+  padding: 4px 2px 3px;
+  border-radius: 12px;
+  font-size: 10px;
+}
+
+body.touch .slot .icon {
+  font-size: 22px;
+}
+
+/* Móvil en vertical: marcadores en columna, barra de piezas arriba y botones algo más pequeños */
+@media (orientation: portrait) {
+  body.touch #top-left {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  /* ovejas de la partida: a la derecha, bajo el botón de pausa */
+  body.touch #flock {
+    top: calc(env(safe-area-inset-top) + 58px);
+    left: auto;
+    right: calc(env(safe-area-inset-right) + 8px);
+    align-items: flex-end;
+  }
+
+  /* la columna central baja para no pisar los marcadores de la izquierda */
+  body.touch #phase {
+    top: calc(env(safe-area-inset-top) + 110px);
+  }
+
+  body.touch #bottom {
+    top: calc(env(safe-area-inset-top) + 138px);
+  }
+
+  body.touch #mode,
+  body.touch #replay-bar {
+    top: calc(env(safe-area-inset-top) + 154px);
+  }
+
+  body.touch #hotbar {
+    bottom: auto;
+    top: calc(env(safe-area-inset-top) + 186px);
+    flex-wrap: wrap;
+    justify-content: center;
+    width: calc(100% - 16px);
+  }
+
+  body.touch #hint {
+    bottom: calc(env(safe-area-inset-bottom) + 250px);
+    max-width: 86vw;
+  }
+
+  body.touch #touch-pad {
+    transform: scale(0.85);
+  }
+
+  body.touch .stick-base {
+    left: calc(env(safe-area-inset-left) + 84px);
+    top: calc(100% - env(safe-area-inset-bottom) - 120px);
+  }
+}

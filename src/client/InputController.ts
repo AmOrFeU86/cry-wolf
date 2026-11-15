@@ -1,6 +1,7 @@
 import type { PlayerInput } from '../sim/entities';
 import type { Vec2 } from '../sim/Grid';
 import { ITEMS, type ItemId } from '../sim/pieces';
+import { isTouchMode } from './touchMode';
 
 /** Traduce teclado y ratón a PlayerInput y controla la cámara orbital. */
 export class InputController {
@@ -22,6 +23,12 @@ export class InputController {
   private removeQueued = false;
   private placeHeld = false;
   private removeHeld = false;
+  /** Mandos táctiles (los rellena TouchControls): stick analógico (adelante, derecha) en [-1, 1]. */
+  stick = { fwd: 0, side: 0 };
+  touchSprint = false;
+  touchAction = false;
+  private touchPlace = false;
+  private touchRemove = false;
 
   constructor(private canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (e) => {
@@ -43,7 +50,7 @@ export class InputController {
     window.addEventListener('blur', () => this.releaseAll());
 
     canvas.addEventListener('mousedown', (e) => {
-      if (!this.enabled || this.spectator) return;
+      if (!this.enabled || this.spectator || isTouchMode()) return;
       if (!this.locked) {
         this.lock();
         return;
@@ -85,6 +92,40 @@ export class InputController {
     });
   }
 
+  // ---------------------------------------------------------------- órdenes desde los mandos táctiles
+
+  /** Girar la cámara con el dedo (en píxeles de pantalla). */
+  look(dx: number, dy: number): void {
+    this.yaw -= dx * 0.006;
+    this.pitch = Math.max(0.12, Math.min(1.25, this.pitch + dy * 0.005));
+  }
+
+  dash(): void {
+    this.dashQueued = true;
+  }
+
+  toggleBuild(): void {
+    this.buildMode = !this.buildMode;
+    if (!this.buildMode) this.touchPlace = this.touchRemove = false;
+  }
+
+  /** Mantener pulsado el botón de colocar (construye en fila como el click mantenido). */
+  setPlace(held: boolean): void {
+    if (held && this.buildMode) this.placeQueued = true;
+    this.touchPlace = held;
+  }
+
+  setRemove(held: boolean): void {
+    if (held && this.buildMode) this.removeQueued = true;
+    this.touchRemove = held;
+  }
+
+  selectItem(k: number): void {
+    if (k < 0 || k >= ITEMS.length) return;
+    this.item = k;
+    this.buildMode = true;
+  }
+
   get locked(): boolean {
     return document.pointerLockElement === this.canvas;
   }
@@ -116,6 +157,8 @@ export class InputController {
     this.keys.clear();
     this.placeHeld = false;
     this.removeHeld = false;
+    this.stick.fwd = this.stick.side = 0;
+    this.touchSprint = this.touchAction = this.touchPlace = this.touchRemove = false;
   }
 
   update(dt: number): void {
@@ -130,8 +173,8 @@ export class InputController {
   }
 
   getInput(): PlayerInput {
-    const fwd = (this.has('KeyW') ? 1 : 0) - (this.has('KeyS') ? 1 : 0);
-    const side = (this.has('KeyD') ? 1 : 0) - (this.has('KeyA') ? 1 : 0);
+    const fwd = (this.has('KeyW') ? 1 : 0) - (this.has('KeyS') ? 1 : 0) + this.stick.fwd;
+    const side = (this.has('KeyD') ? 1 : 0) - (this.has('KeyA') ? 1 : 0) + this.stick.side;
     // Cámara en (sin yaw, cos yaw) respecto a la oveja → adelante = -(sin, cos)
     const fx = -Math.sin(this.yaw);
     const fz = -Math.cos(this.yaw);
@@ -143,15 +186,15 @@ export class InputController {
       aimX: fx,
       aimZ: fz,
       aimAt: this.aimAt,
-      sprint: this.has('ShiftLeft') || this.has('ShiftRight'),
+      sprint: this.has('ShiftLeft') || this.has('ShiftRight') || this.touchSprint,
       dash: this.dashQueued,
       // E es la tecla de acción: comer hierba o, junto a una torre, subir
-      eat: this.has('KeyE'),
-      climb: this.has('KeyE'),
+      eat: this.has('KeyE') || this.touchAction,
+      climb: this.has('KeyE') || this.touchAction,
       buildMode: this.buildMode,
       item: ITEMS[this.item],
-      place: this.buildMode && (this.placeQueued || this.placeHeld),
-      remove: this.buildMode && (this.removeQueued || this.removeHeld),
+      place: this.buildMode && (this.placeQueued || this.placeHeld || this.touchPlace),
+      remove: this.buildMode && (this.removeQueued || this.removeHeld || this.touchRemove),
     };
     this.dashQueued = false;
     this.placeQueued = false;

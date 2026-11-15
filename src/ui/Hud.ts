@@ -38,7 +38,11 @@ export class Hud {
   }
 
   /** item: lo elegido en la barra; null para ocultar la barra (repeticiones). */
-  update(world: World, buildMode: boolean, item: ItemId | null = null): void {
+  update(world: World, buildMode: boolean, item: ItemId | null = null, touch = false): void {
+    // los avisos nombran la tecla o, en modo táctil, el botón de la pantalla
+    const k = touch
+      ? { place: '➕ Poner', remove: '✖ Quitar', act: '🌿', climb: '🗼 Subir', jump: '💨 Saltar: bajar' }
+      : { place: 'Click', remove: 'Click derecho', act: 'E', climb: 'E', jump: 'Espacio: saltar abajo' };
     const prep = world.preparing;
     const remaining = prep
       ? CONFIG.prepTime - world.time
@@ -100,27 +104,27 @@ export class Hud {
         : bt.poor
           ? `Necesitas ${CONFIG.bridge.cost} de lana`
           : bt.valid
-            ? 'Click: tender el puente hasta esa torre'
+            ? `${k.place}: tender el puente hasta esa torre`
             : `Apunta a otra torre a menos de ${CONFIG.bridge.range} m`;
     } else if (s.tower) {
       const biting = world.wolves.some((w) => w.attacking?.[0] === s.tower![0] && w.attacking[1] === s.tower![1]);
       const bridge = world.bridges.some((b) => (b.a[0] === s.tower![0] && b.a[1] === s.tower![1]) || (b.b[0] === s.tower![0] && b.b[1] === s.tower![1]));
-      hint = `🗼 En la torre (${Math.ceil(towerHp * 100)}%)${biting ? ' · ¡La están mordiendo!' : ''} · Espacio: saltar abajo${bridge ? ' · Muévete hacia el puente para cruzar' : ''}`;
+      hint = `🗼 En la torre (${Math.ceil(towerHp * 100)}%)${biting ? ' · ¡La están mordiendo!' : ''} · ${k.jump}${bridge ? ' · Muévete hacia el puente para cruzar' : ''}`;
     } else if (s.stun > 0) {
       hint = '💫 ¡Has caído!';
     } else if (s.climb > 0) {
       hint = 'Subiendo...';
     } else if (world.nearTower && !buildMode) {
-      hint = 'Mantén E para subir a la torre';
+      hint = `Mantén ${k.climb} para subir a la torre`;
     } else if (buildMode && bt?.item === 'pinecone' && !bt.poor) {
-      hint = s.throwCooldown > 0 ? `Piña lista en ${s.throwCooldown.toFixed(1)}s` : 'Click: lanzar piña (hace ruido donde cae y atrae a los lobos)';
+      hint = s.throwCooldown > 0 ? `Piña lista en ${s.throwCooldown.toFixed(1)}s` : `${k.place}: lanzar piña (hace ruido donde cae y atrae a los lobos)`;
     } else if (buildMode && bt?.removable) {
       const p = CONFIG.pieces[bt.removable];
-      hint = `Click derecho: desmontar ${p.name.toLowerCase()} (recuperas lana)`;
+      hint = `${k.remove}: desmontar ${p.name.toLowerCase()} (recuperas lana)`;
     } else if (buildMode && bt?.poor) {
-      hint = `Necesitas ${itemInfo(bt.item).cost} de lana: come hierba (E)`;
+      hint = `Necesitas ${itemInfo(bt.item).cost} de lana: come hierba (${k.act})`;
     } else if (world.nearGrass && !s.eating) {
-      hint = 'Mantén E para comer hierba';
+      hint = `Mantén ${k.act} para comer hierba`;
     } else if (s.eating) {
       hint = 'Ñam ñam...';
     }
