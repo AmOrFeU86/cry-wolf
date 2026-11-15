@@ -29,6 +29,13 @@ import { Rabbits } from './Rabbits';
 
 /** Altura en pantalla de la mira de construcción (coordenadas NDC: 0 = centro, 1 = arriba). */
 export const AIM_NDC_Y = 0.2;
+
+/**
+ * Aparato de bolsillo (solo pantalla táctil, sin ratón): render más ligero desde el principio.
+ * Aquí sí se mira el aparato, porque lo que importa es su GPU, no cómo se juega.
+ */
+const LOW_POWER =
+  typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
 /** El modelo del lobo se hizo para radio 0.48: se agranda según su radio actual. */
 const WOLF_SCALE = CONFIG.wolf.radius / 0.48;
 /** Altura de la plataforma de la torre, donde se enganchan los puentes. */
@@ -136,13 +143,14 @@ export class GameRenderer {
   private shake = 0;
   private time = 0;
   /** Resolución adaptativa: baja si el juego no llega a ~45 fps y no vuelve a subir por encima de donde falló. */
-  private pixelRatio = Math.min(window.devicePixelRatio, 2);
+  private pixelRatio = Math.min(window.devicePixelRatio, LOW_POWER ? 1.5 : 2);
   private pixelRatioCap = this.pixelRatio;
   private perfFrames = 0;
   private perfStart = performance.now();
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    // en móviles y tabletas: sin MSAA (con la densidad de píxeles de sus pantallas casi no se nota y cuesta mucho)
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW_POWER, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -154,7 +162,7 @@ export class GameRenderer {
     this.scene.fog = new THREE.Fog(0xffffff, 30, 82);
     this.day = new DayCycle(this.renderer, this.scene);
     const sun = this.day.sun;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.setScalar(LOW_POWER ? 1024 : 2048);
     const sc = sun.shadow.camera;
     sc.left = sc.bottom = -45;
     sc.right = sc.top = 45;
